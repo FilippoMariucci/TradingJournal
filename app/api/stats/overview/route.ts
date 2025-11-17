@@ -11,7 +11,7 @@ export async function GET(request: Request) {
     const resultFilter = searchParams.get("result");
     const groupType = searchParams.get("groupType");
 
-    // ### 1. Recuperiamo il budget iniziale in modo sicuro ###
+    // ### 1. Recuperiamo il budget iniziale ###
     const settings = await prisma.settings.findFirst();
     const INITIAL_BALANCE =
       settings?.initialBudget !== undefined
@@ -59,7 +59,7 @@ export async function GET(request: Request) {
     const equityCurve: { date: string; equity: number }[] = [];
     const equityDeltas: {
       id: number;
-      date: Date;
+      date: Date | null;
       delta: number;
     }[] = [];
 
@@ -71,16 +71,28 @@ export async function GET(request: Request) {
       const pnl = t.pnl ?? 0;
       equity += pnl;
 
-      const dateKey = t.date.toISOString().slice(0, 10);
+      // FIX: protezione date
+      let dateKey = "N/A";
+      if (t.date instanceof Date && !isNaN(t.date.getTime())) {
+        dateKey = t.date.toISOString().slice(0, 10);
+      }
 
       equityCurve.push({ date: dateKey, equity });
-      equityDeltas.push({ id: t.id, date: t.date, delta: pnl });
 
+      equityDeltas.push({
+        id: t.id,
+        date: t.date ?? null,
+        delta: pnl,
+      });
+
+      // Giorni
       dayMap.set(dateKey, (dayMap.get(dateKey) ?? 0) + pnl);
 
+      // Simbolo
       const s = t.currencyPair ?? "Altro";
       symbolMap.set(s, (symbolMap.get(s) ?? 0) + pnl);
 
+      // Gruppo
       const g = t.groupType ?? "Altro";
       groupMap.set(g, (groupMap.get(g) ?? 0) + pnl);
     }
@@ -90,7 +102,7 @@ export async function GET(request: Request) {
     const totalPnl = equity - INITIAL_BALANCE;
     const avgPnlPerTrade = totalTrades ? totalPnl / totalTrades : 0;
 
-    // Miglior/peggior trade basato su equity
+    // Miglior/Peggior trade
     let bestTrade = null;
     let worstTrade = null;
 
