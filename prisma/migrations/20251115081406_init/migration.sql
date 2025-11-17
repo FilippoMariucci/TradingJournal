@@ -1,7 +1,10 @@
 -- CreateTable
 CREATE TABLE "Trade" (
     "id" SERIAL NOT NULL,
+<<<<<<< HEAD
     "importOrder" INTEGER,
+=======
+>>>>>>> 9a907855d172c733c89957fb25b7e0babcbc0ab0
     "ticker" TEXT NOT NULL,
     "type" TEXT NOT NULL,
     "strategy" TEXT,

@@ -9,7 +9,11 @@ datasource db {
 
 model Trade {
   id                Int      @id @default(autoincrement())
+<<<<<<< HEAD
   importOrder       Int
+=======
+  importOrder Int
+>>>>>>> 9a907855d172c733c89957fb25b7e0babcbc0ab0
   tradeNumber       Int?     
   date              DateTime?     // 👈 AGGIUNTO "?"
   dayOfWeek         String?
@@ -37,9 +41,12 @@ model Trade {
 }
 
 
+<<<<<<< HEAD
 model Settings {
   id            Int     @id @default(autoincrement())
   initialBudget Float   @default(700)
 }
 
+=======
+>>>>>>> 9a907855d172c733c89957fb25b7e0babcbc0ab0
 
