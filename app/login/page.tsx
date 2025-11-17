@@ -40,6 +40,7 @@ export default function LoginPage() {
         )}
 
         <input
+          name="email"           //  ✅ OBBLIGATORIO
           type="email"
           placeholder="Email"
           className="w-full p-2 bg-neutral-800 rounded"
@@ -48,6 +49,7 @@ export default function LoginPage() {
         />
 
         <input
+          name="password"        //  ✅ OBBLIGATORIO
           type="password"
           placeholder="Password"
           className="w-full p-2 bg-neutral-800 rounded"
