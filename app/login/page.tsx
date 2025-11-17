@@ -2,23 +2,29 @@
 
 import { useState } from "react";
 import { signIn } from "next-auth/react";
+import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
   async function handleLogin(e: any) {
     e.preventDefault();
+    setError("");
 
     const res = await signIn("credentials", {
-      redirect: true,
+      redirect: false,
       email,
       password,
-      callbackUrl: "/dashboard",
     });
 
-    if (res?.error) setError("Credenziali errate");
+    if (res?.error) {
+      setError("Credenziali errate");
+    } else {
+      router.push("/dashboard");
+    }
   }
 
   return (
