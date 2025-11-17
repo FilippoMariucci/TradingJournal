@@ -16,15 +16,16 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
-        // Cerca l'utente nel database
+        const email = credentials.email.trim();
+        const password = credentials.password.trim();
+
         const user = await prisma.user.findUnique({
-          where: { email: credentials.email },
+          where: { email },
         });
 
         if (!user) return null;
 
-        // Controlla la password
-        const isValid = await bcrypt.compare(credentials.password, user.password);
+        const isValid = await bcrypt.compare(password, user.password);
         if (!isValid) return null;
 
         return {
@@ -45,19 +46,12 @@ export const authOptions: NextAuthOptions = {
   },
 
   callbacks: {
-    // Salva user.id nel token JWT
     async jwt({ token, user }) {
-      if (user) {
-        (token as any).id = (user as any).id;
-      }
+      if (user) (token as any).id = (user as any).id;
       return token;
     },
-
-    // Inserisce token.id in session.user.id
     async session({ session, token }) {
-      if (session.user && token) {
-        (session.user as any).id = (token as any).id;
-      }
+      if (session.user) (session.user as any).id = (token as any).id;
       return session;
     },
   },
