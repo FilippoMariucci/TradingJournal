@@ -11,14 +11,11 @@ export async function GET(request: Request) {
     const resultFilter = searchParams.get("result");
     const groupType = searchParams.get("groupType");
 
-    // ### 1. Recuperiamo il budget iniziale ###
+    // ### 1. Budget iniziale ###
     const settings = await prisma.settings.findFirst();
-    const INITIAL_BALANCE =
-      settings?.initialBudget !== undefined
-        ? settings.initialBudget
-        : 700;
+    const INITIAL_BALANCE = settings?.initialBudget ?? 700;
 
-    // ### 2. Costruzione filtro ###
+    // ### 2. Filtro ###
     const where: any = {};
 
     if (startDateStr || endDateStr) {
@@ -34,13 +31,13 @@ export async function GET(request: Request) {
     if (symbol && symbol !== "all") where.currencyPair = symbol;
     if (groupType && groupType !== "all") where.groupType = groupType;
 
-    // ### 3. Carichiamo i trades ###
+    // ### 3. Caricamento trades ###
     const trades = await prisma.trade.findMany({
       where,
       orderBy: [{ date: "asc" }, { importOrder: "asc" }],
     });
 
-    // ### 4. Filtri risultato ###
+    // ### 4. Filtro risultato ###
     let filteredTrades = trades;
 
     if (resultFilter && resultFilter !== "all") {
@@ -71,10 +68,12 @@ export async function GET(request: Request) {
       const pnl = t.pnl ?? 0;
       equity += pnl;
 
-      // FIX: protezione date
+      // ---- Protezione t.date NULL / INVALIDA ----
       let dateKey = "N/A";
-      if (t.date instanceof Date && !isNaN(t.date.getTime())) {
-        dateKey = t.date.toISOString().slice(0, 10);
+
+      if (t.date && !isNaN(new Date(t.date).getTime())) {
+        const d = new Date(t.date);
+        dateKey = d.toISOString().slice(0, 10);
       }
 
       equityCurve.push({ date: dateKey, equity });
@@ -100,9 +99,7 @@ export async function GET(request: Request) {
     // ### 6. Statistiche ###
     const totalTrades = filteredTrades.length;
     const totalPnl = equity - INITIAL_BALANCE;
-    const avgPnlPerTrade = totalTrades ? totalPnl / totalTrades : 0;
 
-    // Miglior/Peggior trade
     let bestTrade = null;
     let worstTrade = null;
 
@@ -115,7 +112,6 @@ export async function GET(request: Request) {
       );
     }
 
-    // Giorni verdi/rossi
     let daysGreen = 0;
     let daysRed = 0;
     for (const v of dayMap.values()) {
@@ -123,7 +119,6 @@ export async function GET(request: Request) {
       else if (v < 0) daysRed++;
     }
 
-    // Per simbolo
     const pnlBySymbol = Array.from(symbolMap.entries()).map(
       ([symbol, pnl]) => ({
         symbol,
@@ -134,7 +129,6 @@ export async function GET(request: Request) {
       })
     );
 
-    // Per gruppo
     const groupStats = Array.from(groupMap.entries()).map(
       ([groupType, pnl]) => ({
         groupType,
@@ -145,7 +139,6 @@ export async function GET(request: Request) {
       })
     );
 
-    // Miglior/peggior gruppo
     let bestGroup = null;
     let worstGroup = null;
 
@@ -162,11 +155,9 @@ export async function GET(request: Request) {
       startingBalance: INITIAL_BALANCE,
       totalTrades,
       totalPnl,
-      avgPnlPerTrade,
+      avgPnlPerTrade: totalTrades ? totalPnl / totalTrades : 0,
       winRate: totalTrades
-        ? ((equityDeltas.filter((x) => x.delta > 0).length /
-            totalTrades) *
-            100)
+        ? ((equityDeltas.filter((x) => x.delta > 0).length / totalTrades) * 100)
         : 0,
       wins: equityDeltas.filter((x) => x.delta > 0).length,
       losses: equityDeltas.filter((x) => x.delta < 0).length,
@@ -189,6 +180,4 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     console.error("ERROR /api/stats/overview:", error);
-    return NextResponse.json({ error: "Internal error" }, { status: 500 });
-  }
-}
+    return NextResponse.j
