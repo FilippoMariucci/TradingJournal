@@ -12,7 +12,8 @@ export async function GET(request: Request) {
     const groupType = searchParams.get("groupType");
 
     const settings = await prisma.settings.findFirst();
-    const INITIAL_BALANCE = settings?.initialBudget ?? 700;
+    const INITIAL_BALANCE =
+      settings?.initialBudget !== undefined ? settings.initialBudget : 700;
 
     const where: any = {};
 
@@ -59,14 +60,10 @@ export async function GET(request: Request) {
       const pnl = t.pnl ?? 0;
       equity += pnl;
 
-      // 🔥 PROTEZIONE DEFINITIVA
+      // ⭐ FIX 100% TYPE SAFE
       let dateKey = "N/A";
-
-      if (t.date) {
-        const d = new Date(t.date);
-        if (!isNaN(d.getTime())) {
-          dateKey = d.toISOString().split("T")[0];
-        }
+      if (t.date && t.date instanceof Date && !isNaN(t.date.getTime())) {
+        dateKey = t.date.toISOString().slice(0, 10);
       }
 
       equityCurve.push({ date: dateKey, equity });
@@ -88,22 +85,18 @@ export async function GET(request: Request) {
 
     const totalTrades = filteredTrades.length;
     const totalPnl = equity - INITIAL_BALANCE;
+    const avgPnlPerTrade = totalTrades ? totalPnl / totalTrades : 0;
 
     let bestTrade = null;
     let worstTrade = null;
 
     if (equityDeltas.length > 0) {
-      bestTrade = equityDeltas.reduce((a, b) =>
-        b.delta > a.delta ? b : a
-      );
-      worstTrade = equityDeltas.reduce((a, b) =>
-        b.delta < a.delta ? b : a
-      );
+      bestTrade = equityDeltas.reduce((a, b) => (b.delta > a.delta ? b : a));
+      worstTrade = equityDeltas.reduce((a, b) => (b.delta < a.delta ? b : a));
     }
 
     let daysGreen = 0;
     let daysRed = 0;
-
     for (const v of dayMap.values()) {
       if (v > 0) daysGreen++;
       else if (v < 0) daysRed++;
@@ -133,30 +126,23 @@ export async function GET(request: Request) {
     let worstGroup = null;
 
     if (groupStats.length > 0) {
-      bestGroup = groupStats.reduce((a, b) =>
-        b.totalPnl > a.totalPnl ? b : a
-      );
-      worstGroup = groupStats.reduce((a, b) =>
-        b.totalPnl < a.totalPnl ? b : a
-      );
+      bestGroup = groupStats.reduce((a, b) => (b.totalPnl > a.totalPnl ? b : a));
+      worstGroup = groupStats.reduce((a, b) => (b.totalPnl < a.totalPnl ? b : a));
     }
 
     return NextResponse.json({
       startingBalance: INITIAL_BALANCE,
       totalTrades,
       totalPnl,
-      avgPnlPerTrade: totalTrades ? totalPnl / totalTrades : 0,
+      avgPnlPerTrade,
       winRate: totalTrades
         ? ((equityDeltas.filter((x) => x.delta > 0).length / totalTrades) * 100)
         : 0,
-
       wins: equityDeltas.filter((x) => x.delta > 0).length,
       losses: equityDeltas.filter((x) => x.delta < 0).length,
       breakevens: equityDeltas.filter((x) => x.delta === 0).length,
-
       daysGreen,
       daysRed,
-
       bestTrade,
       worstTrade,
       equityCurve,
@@ -164,7 +150,6 @@ export async function GET(request: Request) {
       groupStats,
       bestGroup,
       worstGroup,
-
       availableSymbols: Array.from(
         new Set(trades.map((t) => t.currencyPair).filter(Boolean))
       ),
