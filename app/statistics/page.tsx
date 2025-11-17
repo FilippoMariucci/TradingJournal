@@ -56,15 +56,45 @@ type PeriodStat = {
   pnl: number;
 };
 
-// 🔢 PnL coerente con Journal/Dashboard
-function computeDisplayPnl(t: Trade) {
-  const pnl = Number(t.pnl ?? 0);
-  const amount = Number(t.amount ?? 0);
-  const res = t.result?.toLowerCase() ?? "";
 
-  if (res === "persa") return -Math.abs(amount);
-  if (res === "presa") return pnl;
-  // "pari" / "pareggio" / "break-even" ecc. li consideriamo 0
+function normalizeGroup(g?: string) {
+  if (!g) return "";
+  const x = g.toLowerCase().trim();
+
+  if (x.includes("elite") && x.includes("pro")) return "Gruppo Elite Pro";
+  if (x.includes("elite")) return "Gruppo Elite Pro";
+  if (x.includes("live")) return "Gruppo Live";
+  if (x.includes("bot")) return "Bot";
+
+  return g; // fallback
+}
+// 🔢 PnL coerente con Journal/Dashboard (stessa logica del Journal)
+function computeDisplayPnl(t: Trade) {
+  const amount = Number(t.amount ?? 0);
+  const rawPnl =
+    t.pnl !== null && t.pnl !== undefined ? Number(t.pnl) : null;
+  const res = t.result?.toString().toLowerCase().trim() ?? "";
+
+  // Se c'è un PnL reale (da CSV), usiamo quello
+  if (rawPnl !== null && !Number.isNaN(rawPnl)) {
+    return rawPnl;
+  }
+
+  // Trade manuali senza PnL
+  if (res.includes("presa") || res.includes("vinta")) {
+    return Math.abs(amount);
+  }
+  if (res.includes("persa") || res.includes("loss")) {
+    return -Math.abs(amount);
+  }
+  if (
+    res.includes("pari") ||
+    res.includes("pareggio") ||
+    res.includes("break")
+  ) {
+    return 0;
+  }
+
   return 0;
 }
 
@@ -128,9 +158,7 @@ function getStats(list: Trade[]): Stats {
       : 0;
 
   const avgTrade =
-    totalTrades > 0
-      ? (totalWinValue - totalLossValue) / totalTrades
-      : 0;
+    totalTrades > 0 ? (totalWinValue - totalLossValue) / totalTrades : 0;
 
   return {
     totalTrades,
@@ -248,8 +276,15 @@ export default function StatisticsPage() {
     loadTrades();
   }, []);
 
+  const hasAnyTrades = trades.length > 0;
+
   // 🔍 Applico i filtri
-  const filteredTrades = trades.filter((t) => {
+  const normalizedTrades = trades.map((t) => ({
+  ...t,
+  groupType: normalizeGroup(t.groupType),
+}));
+
+const filteredTrades = normalizedTrades.filter((t) => {
     const res = t.result ?? "";
 
     if (filterResult && res !== filterResult) return false;
@@ -301,7 +336,7 @@ export default function StatisticsPage() {
   const globalStats = getStats(filteredTrades);
   const totalPnlGlobal = calculateTotalPnl(filteredTrades);
 
-  // Gruppi
+  // Gruppi (filtrati)
   const groupNames = Array.from(
     new Set(
       filteredTrades
@@ -335,20 +370,20 @@ export default function StatisticsPage() {
     )
   );
 
-  // Period stats: daily / weekly / monthly
+  // Period stats: daily / weekly / monthly (filtrati)
   const dailyStats = buildPeriodStats(filteredTrades, "day").slice(0, 10);
   const weeklyStats = buildPeriodStats(filteredTrades, "week").slice(0, 10);
   const monthlyStats = buildPeriodStats(filteredTrades, "month").slice(0, 12);
 
   return (
-    <div className="w-full min-h-screen bg-[#020617] text-white px-6 py-10">
+    <div className="w-full min-h-screen bg-[#020617] text-white px-4 md:px-6 py-8 md:py-10">
       <div className="max-w-6xl mx-auto space-y-8">
         {/* HEADER */}
-        <header>
-          <h1 className="text-3xl md:text-4xl font-bold mb-2">
+        <header className="space-y-2">
+          <h1 className="text-3xl md:text-4xl font-bold">
             Statistiche Avanzate
           </h1>
-          <p className="text-neutral-300">
+          <p className="text-neutral-300 text-sm md:text-base">
             Panoramica completa delle performance, dei gruppi e
             dell&apos;andamento del budget. Tutto è calcolato con la stessa
             logica di Journal e Dashboard, sui trade filtrati.
@@ -356,7 +391,7 @@ export default function StatisticsPage() {
         </header>
 
         {/* 🔍 FILTRI */}
-        <section className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4">
+        <section className="bg-slate-900 border border-slate-800 rounded-xl p-4 md:p-5 space-y-4">
           <h2 className="text-lg font-semibold mb-1">Filtri</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {/* Risultato */}
@@ -367,7 +402,7 @@ export default function StatisticsPage() {
               <select
                 value={filterResult}
                 onChange={(e) => setFilterResult(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-sm"
+                className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-sm"
               >
                 <option value="">Tutti</option>
                 <option value="Presa">Presa</option>
@@ -384,7 +419,7 @@ export default function StatisticsPage() {
               <select
                 value={filterCurrency}
                 onChange={(e) => setFilterCurrency(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-sm"
+                className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-sm"
               >
                 <option value="">Tutte</option>
                 {currencyOptions.map((c) => (
@@ -403,7 +438,7 @@ export default function StatisticsPage() {
               <select
                 value={filterDay}
                 onChange={(e) => setFilterDay(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-sm"
+                className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-sm"
               >
                 <option value="">Tutti</option>
                 {dayOptions.map((d) => (
@@ -422,10 +457,16 @@ export default function StatisticsPage() {
               <select
                 value={filterGroup}
                 onChange={(e) => setFilterGroup(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-sm"
+                className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-sm"
               >
                 <option value="">Tutti</option>
-                {groupNames.map((g) => (
+                {Array.from(
+                  new Set(
+                    trades
+                      .map((t) => t.groupType)
+                      .filter((g): g is string => !!g && g.trim() !== "")
+                  )
+                ).map((g) => (
                   <option key={g} value={g}>
                     {g}
                   </option>
@@ -442,7 +483,7 @@ export default function StatisticsPage() {
                 type="date"
                 value={filterFrom}
                 onChange={(e) => setFilterFrom(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-sm"
+                className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-sm"
               />
             </div>
 
@@ -455,7 +496,7 @@ export default function StatisticsPage() {
                 type="date"
                 value={filterTo}
                 onChange={(e) => setFilterTo(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-sm"
+                className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1.5 text-sm"
               />
             </div>
           </div>
@@ -467,23 +508,32 @@ export default function StatisticsPage() {
           </p>
         </section>
 
-        {!hasTrades && (
+        {!hasAnyTrades && (
           <Card className="bg-slate-900 border-slate-800">
-            <CardContent className="p-6 text-neutral-300">
+            <CardContent className="p-6 text-neutral-300 text-sm">
+              Non ci sono ancora trade registrati. Importali o inseriscili
+              dalla pagina Journal.
+            </CardContent>
+          </Card>
+        )}
+
+        {hasAnyTrades && !hasTrades && (
+          <Card className="bg-slate-900 border-slate-800">
+            <CardContent className="p-6 text-neutral-300 text-sm">
               Nessun trade corrisponde ai filtri selezionati. Modifica i filtri
-              o importa trade dalla pagina Journal.
+              o azzera i filtri per vedere tutte le statistiche.
             </CardContent>
           </Card>
         )}
 
         {hasTrades && (
           <>
-            {/* 📊 STATISTICHE GLOBALI */}
+            {/* 📊 STATISTICHE GLOBALI (FILTRATE) */}
             <section className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
               <Card className="bg-slate-900 border-slate-800">
                 <CardContent className="p-4">
                   <p className="text-neutral-400 text-sm">Trade Totali</p>
-                  <p className="text-3xl font-bold">
+                  <p className="text-3xl font-bold text-white">
                     {globalStats.totalTrades}
                   </p>
                 </CardContent>
@@ -510,7 +560,7 @@ export default function StatisticsPage() {
               <Card className="bg-slate-900 border-slate-800">
                 <CardContent className="p-4">
                   <p className="text-neutral-400 text-sm">Pareggi</p>
-                  <p className="text-3xl font-bold">
+                  <p className="text-3xl font-bold text-white">
                     {globalStats.breakeven}
                   </p>
                 </CardContent>
@@ -528,7 +578,7 @@ export default function StatisticsPage() {
               <Card className="bg-slate-900 border-slate-800">
                 <CardContent className="p-4">
                   <p className="text-neutral-400 text-sm">Profit Factor</p>
-                  <p className="text-3xl font-bold">
+                  <p className="text-3xl font-bold text-white">
                     {globalStats.profitFactor.toFixed(2)}
                   </p>
                 </CardContent>
@@ -537,7 +587,7 @@ export default function StatisticsPage() {
               <Card className="bg-slate-900 border-slate-800">
                 <CardContent className="p-4">
                   <p className="text-neutral-400 text-sm">Media per Trade</p>
-                  <p className="text-3xl font-bold">
+                  <p className="text-3xl font-bold text-white">
                     {formatEuro(globalStats.avgTrade)} €
                   </p>
                 </CardContent>
@@ -565,13 +615,15 @@ export default function StatisticsPage() {
               </Card>
             </section>
 
-            {/* 📈 EQUITY */}
+            {/* 📈 EQUITY (FILTRATA) */}
             <section>
               <Card className="bg-slate-900 border-slate-800">
-                <CardHeader>
-                  <CardTitle>Andamento Budget (Equity)</CardTitle>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-3xl font-bold text-white">
+                    Andamento Budget (Equity)
+                  </CardTitle>
                 </CardHeader>
-                <CardContent className="h-80">
+                <CardContent className="h-72 md:h-80">
                   {equityData.length === 0 ? (
                     <p className="text-neutral-400 text-sm">
                       Nessun dato di equity disponibile per i filtri selezionati.
@@ -583,7 +635,7 @@ export default function StatisticsPage() {
                         <XAxis dataKey="label" tick={{ fill: "#cbd5f5" }} />
                         <YAxis
                           tick={{ fill: "#cbd5f5" }}
-                          tickFormatter={(v) => v.toFixed(0)}
+                          tickFormatter={(v) => Number(v).toFixed(0)}
                         />
                         <Tooltip
                           contentStyle={{
@@ -615,7 +667,7 @@ export default function StatisticsPage() {
               </Card>
             </section>
 
-            {/* 🧩 STATISTICHE PER GRUPPO */}
+            {/* 🧩 STATISTICHE PER GRUPPO (FILTRATE) */}
             {groupNames.length > 0 && (
               <section className="space-y-4">
                 <h2 className="text-2xl font-semibold">
@@ -623,340 +675,361 @@ export default function StatisticsPage() {
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {groupNames.map((g) => {
-                    const gs = groupStatsMap[g];
-                    const pnl = groupPnls[g] ?? 0;
+  const gs = groupStatsMap[g];
+  const pnl = groupPnls[g] ?? 0;
 
-                    return (
-                      <Card
-                        key={g}
-                        className="bg-slate-900 border-slate-800"
-                      >
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-lg flex items-center justify-between">
-                            <span>{g}</span>
-                            <span className="text-xs text-neutral-400">
-                              {gs.totalTrades} trade
-                            </span>
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-1 text-sm text-neutral-200">
-                          <p>
-                            Win Rate:{" "}
-                            <span className="font-semibold text-green-400">
+  return (
+    <Card
+      key={g}
+      className="bg-slate-900 border-slate-800"
+    >
+      <CardHeader className="pb-2">
+        <div className="flex items-baseline justify-between gap-2">
+          <CardTitle className="text-lg text-white">
+            {g}
+          </CardTitle>
+          <span className="text-xs text-neutral-200">
+            Trade totali:{" "}
+            <span className="font-semibold text-white">
+              {gs.totalTrades}
+            </span>
+          </span>
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-1 text-sm text-neutral-200">
+        <p>
+          Win Rate:{" "}
+          <span className="font-semibold text-green-400">
+            {gs.winRate.toFixed(1)}%
+          </span>
+        </p>
+        <p>
+          Profit Factor:{" "}
+          <span className="font-semibold">
+            {gs.profitFactor.toFixed(2)}
+          </span>
+        </p>
+        <p>
+          Media per Trade:{" "}
+          <span className="font-semibold">
+            {formatEuro(gs.avgTrade)} €
+          </span>
+        </p>
+        <p>
+          PnL Gruppo:{" "}
+          <span
+            className={`font-semibold ${
+              pnl > 0
+                ? "text-green-400"
+                : pnl < 0
+                ? "text-red-400"
+                : "text-white"
+            }`}
+          >
+            {pnl > 0
+              ? `+ ${formatEuro(pnl)} €`
+              : pnl < 0
+              ? `- ${formatEuro(Math.abs(pnl))} €`
+              : "0,00 €"}
+          </span>
+        </p>
+      </CardContent>
+    </Card>
+  );
+})}
+
+                </div>
+              </section>
+            )}
+
+            {/* 🧾 TABELLA GRUPPI (STILE JOURNAL) */}
+            {groupNames.length > 0 && (
+              <section className="space-y-4">
+                <h2 className="text-2xl font-semibold">
+                  Riepilogo Gruppi (filtrati)
+                </h2>
+                <div className="w-full overflow-auto rounded-xl shadow-2xl border border-neutral-700 bg-[#faf7f2]">
+                  <Table className="min-w-[900px] text-black">
+                    <TableHeader className="bg-[#e8e2d5]">
+                      <TableRow>
+                        <TableHead>Gruppo</TableHead>
+                        <TableHead>Trade Totali</TableHead>
+                        <TableHead>Win</TableHead>
+                        <TableHead>Loss</TableHead>
+                        <TableHead>Pareggi</TableHead>
+                        <TableHead>Win Rate</TableHead>
+                        <TableHead>Profit Factor</TableHead>
+                        <TableHead>PnL</TableHead>
+                        <TableHead>R:R Medio</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {groupNames.map((g, idx) => {
+                        const gs = groupStatsMap[g];
+                        const pnl = groupPnls[g] ?? 0;
+
+                        return (
+                          <TableRow
+                            key={g}
+                            className={`${
+                              idx % 2 === 0
+                                ? "bg-[#fffaf0]"
+                                : "bg-[#f3ede2]"
+                            } border-b border-neutral-300 hover:bg-[#e8e0cf] transition`}
+                          >
+                            <TableCell className="font-semibold">
+                              {g}
+                            </TableCell>
+                            <TableCell>{gs.totalTrades}</TableCell>
+                            <TableCell className="text-green-600">
+                              {gs.wins}
+                            </TableCell>
+                            <TableCell className="text-red-600">
+                              {gs.losses}
+                            </TableCell>
+                            <TableCell>{gs.breakeven}</TableCell>
+                            <TableCell>
                               {gs.winRate.toFixed(1)}%
-                            </span>
-                          </p>
-                          <p>
-                            Profit Factor:{" "}
-                            <span className="font-semibold">
+                            </TableCell>
+                            <TableCell>
                               {gs.profitFactor.toFixed(2)}
-                            </span>
-                          </p>
-                          <p>
-                            Media per Trade:{" "}
-                            <span className="font-semibold">
-                              {formatEuro(gs.avgTrade)} €
-                            </span>
-                          </p>
-                          <p>
-                            PnL Gruppo:{" "}
-                            <span
-                              className={`font-semibold ${
+                            </TableCell>
+                            <TableCell
+                              className={
                                 pnl > 0
-                                  ? "text-green-400"
+                                  ? "text-green-600"
                                   : pnl < 0
-                                  ? "text-red-400"
-                                  : "text-white"
-                              }`}
+                                  ? "text-red-600"
+                                  : ""
+                              }
                             >
                               {pnl > 0
                                 ? `+ ${formatEuro(pnl)} €`
                                 : pnl < 0
                                 ? `- ${formatEuro(Math.abs(pnl))} €`
                                 : "0,00 €"}
-                            </span>
-                          </p>
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
+                            </TableCell>
+                            <TableCell>
+                              {gs.rrAverage.toFixed(2)}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
                 </div>
               </section>
             )}
 
-            {/* 🧾 TABELLA GRUPPI */}
-            {groupNames.length > 0 && (
-              <section className="space-y-4">
-                <h2 className="text-2xl font-semibold">
-                  Riepilogo Gruppi (filtrati)
-                </h2>
-                <Card className="bg-slate-900 border-slate-800">
-                  <CardContent className="p-0">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Gruppo</TableHead>
-                          <TableHead>Trade Totali</TableHead>
-                          <TableHead>Win</TableHead>
-                          <TableHead>Loss</TableHead>
-                          <TableHead>Pareggi</TableHead>
-                          <TableHead>Win Rate</TableHead>
-                          <TableHead>Profit Factor</TableHead>
-                          <TableHead>PnL</TableHead>
-                          <TableHead>R:R Medio</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {groupNames.map((g) => {
-                          const gs = groupStatsMap[g];
-                          const pnl = groupPnls[g] ?? 0;
-
-                          return (
-                            <TableRow key={g}>
-                              <TableCell className="font-semibold">
-                                {g}
-                              </TableCell>
-                              <TableCell>{gs.totalTrades}</TableCell>
-                              <TableCell className="text-green-400">
-                                {gs.wins}
-                              </TableCell>
-                              <TableCell className="text-red-400">
-                                {gs.losses}
-                              </TableCell>
-                              <TableCell>{gs.breakeven}</TableCell>
-                              <TableCell>
-                                {gs.winRate.toFixed(1)}%
-                              </TableCell>
-                              <TableCell>
-                                {gs.profitFactor.toFixed(2)}
-                              </TableCell>
-                              <TableCell
-                                className={
-                                  pnl > 0
-                                    ? "text-green-400"
-                                    : pnl < 0
-                                    ? "text-red-400"
-                                    : ""
-                                }
-                              >
-                                {pnl > 0
-                                  ? `+ ${formatEuro(pnl)} €`
-                                  : pnl < 0
-                                  ? `- ${formatEuro(Math.abs(pnl))} €`
-                                  : "0,00 €"}
-                              </TableCell>
-                              <TableCell>
-                                {gs.rrAverage.toFixed(2)}
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
-              </section>
-            )}
-
-            {/* 📅 GIORNALIERO */}
+            {/* 📅 GIORNALIERO (STILE JOURNAL) */}
             <section className="space-y-4">
               <h2 className="text-2xl font-semibold">
                 Statistiche Giornaliere (ultimi 10 giorni filtrati)
               </h2>
-              <Card className="bg-slate-900 border-slate-800">
-                <CardContent className="p-0">
-                  {dailyStats.length === 0 ? (
-                    <p className="p-4 text-sm text-neutral-400">
-                      Nessun dato giornaliero disponibile per i filtri attuali.
-                    </p>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Giorno</TableHead>
-                          <TableHead>Trade</TableHead>
-                          <TableHead>Win</TableHead>
-                          <TableHead>Loss</TableHead>
-                          <TableHead>Pareggi</TableHead>
-                          <TableHead>Win Rate</TableHead>
-                          <TableHead>Profit Factor</TableHead>
-                          <TableHead>PnL</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {dailyStats.map((d) => (
-                          <TableRow key={d.key}>
-                            <TableCell>{d.label}</TableCell>
-                            <TableCell>{d.stats.totalTrades}</TableCell>
-                            <TableCell className="text-green-400">
-                              {d.stats.wins}
-                            </TableCell>
-                            <TableCell className="text-red-400">
-                              {d.stats.losses}
-                            </TableCell>
-                            <TableCell>{d.stats.breakeven}</TableCell>
-                            <TableCell>
-                              {d.stats.winRate.toFixed(1)}%
-                            </TableCell>
-                            <TableCell>
-                              {d.stats.profitFactor.toFixed(2)}
-                            </TableCell>
-                            <TableCell
-                              className={
-                                d.pnl > 0
-                                  ? "text-green-400"
-                                  : d.pnl < 0
-                                  ? "text-red-400"
-                                  : ""
-                              }
-                            >
-                              {d.pnl > 0
-                                ? `+ ${formatEuro(d.pnl)} €`
+              <div className="w-full overflow-auto rounded-xl shadow-2xl border border-neutral-700 bg-[#faf7f2]">
+                {dailyStats.length === 0 ? (
+                  <p className="p-4 text-sm text-neutral-700">
+                    Nessun dato giornaliero disponibile per i filtri attuali.
+                  </p>
+                ) : (
+                  <Table className="min-w-[900px] text-black">
+                    <TableHeader className="bg-[#e8e2d5]">
+                      <TableRow>
+                        <TableHead>Giorno</TableHead>
+                        <TableHead>Trade</TableHead>
+                        <TableHead>Win</TableHead>
+                        <TableHead>Loss</TableHead>
+                        <TableHead>Pareggi</TableHead>
+                        <TableHead>Win Rate</TableHead>
+                        <TableHead>Profit Factor</TableHead>
+                        <TableHead>PnL</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {dailyStats.map((d, idx) => (
+                        <TableRow
+                          key={d.key}
+                          className={`${
+                            idx % 2 === 0 ? "bg-[#fffaf0]" : "bg-[#f3ede2]"
+                          } border-b border-neutral-300 hover:bg-[#e8e0cf] transition`}
+                        >
+                          <TableCell>{d.label}</TableCell>
+                          <TableCell>{d.stats.totalTrades}</TableCell>
+                          <TableCell className="text-green-600">
+                            {d.stats.wins}
+                          </TableCell>
+                          <TableCell className="text-red-600">
+                            {d.stats.losses}
+                          </TableCell>
+                          <TableCell>{d.stats.breakeven}</TableCell>
+                          <TableCell>
+                            {d.stats.winRate.toFixed(1)}%
+                          </TableCell>
+                          <TableCell>
+                            {d.stats.profitFactor.toFixed(2)}
+                          </TableCell>
+                          <TableCell
+                            className={
+                              d.pnl > 0
+                                ? "text-green-600"
                                 : d.pnl < 0
-                                ? `- ${formatEuro(Math.abs(d.pnl))} €`
-                                : "0,00 €"}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  )}
-                </CardContent>
-              </Card>
+                                ? "text-red-600"
+                                : ""
+                            }
+                          >
+                            {d.pnl > 0
+                              ? `+ ${formatEuro(d.pnl)} €`
+                              : d.pnl < 0
+                              ? `- ${formatEuro(Math.abs(d.pnl))} €`
+                              : "0,00 €"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
             </section>
 
-            {/* 📆 SETTIMANALE */}
+            {/* 📆 SETTIMANALE (STILE JOURNAL) */}
             <section className="space-y-4">
               <h2 className="text-2xl font-semibold">
                 Statistiche Settimanali (ultime 10 settimane filtrate)
               </h2>
-              <Card className="bg-slate-900 border-slate-800">
-                <CardContent className="p-0">
-                  {weeklyStats.length === 0 ? (
-                    <p className="p-4 text-sm text-neutral-400">
-                      Nessun dato settimanale disponibile per i filtri attuali.
-                    </p>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Settimana</TableHead>
-                          <TableHead>Trade</TableHead>
-                          <TableHead>Win</TableHead>
-                          <TableHead>Loss</TableHead>
-                          <TableHead>Pareggi</TableHead>
-                          <TableHead>Win Rate</TableHead>
-                          <TableHead>Profit Factor</TableHead>
-                          <TableHead>PnL</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {weeklyStats.map((w) => (
-                          <TableRow key={w.key}>
-                            <TableCell>{w.label}</TableCell>
-                            <TableCell>{w.stats.totalTrades}</TableCell>
-                            <TableCell className="text-green-400">
-                              {w.stats.wins}
-                            </TableCell>
-                            <TableCell className="text-red-400">
-                              {w.stats.losses}
-                            </TableCell>
-                            <TableCell>{w.stats.breakeven}</TableCell>
-                            <TableCell>
-                              {w.stats.winRate.toFixed(1)}%
-                            </TableCell>
-                            <TableCell>
-                              {w.stats.profitFactor.toFixed(2)}
-                            </TableCell>
-                            <TableCell
-                              className={
-                                w.pnl > 0
-                                  ? "text-green-400"
-                                  : w.pnl < 0
-                                  ? "text-red-400"
-                                  : ""
-                              }
-                            >
-                              {w.pnl > 0
-                                ? `+ ${formatEuro(w.pnl)} €`
+              <div className="w-full overflow-auto rounded-xl shadow-2xl border border-neutral-700 bg-[#faf7f2]">
+                {weeklyStats.length === 0 ? (
+                  <p className="p-4 text-sm text-neutral-700">
+                    Nessun dato settimanale disponibile per i filtri attuali.
+                  </p>
+                ) : (
+                  <Table className="min-w-[900px] text-black">
+                    <TableHeader className="bg-[#e8e2d5]">
+                      <TableRow>
+                        <TableHead>Settimana</TableHead>
+                        <TableHead>Trade</TableHead>
+                        <TableHead>Win</TableHead>
+                        <TableHead>Loss</TableHead>
+                        <TableHead>Pareggi</TableHead>
+                        <TableHead>Win Rate</TableHead>
+                        <TableHead>Profit Factor</TableHead>
+                        <TableHead>PnL</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {weeklyStats.map((w, idx) => (
+                        <TableRow
+                          key={w.key}
+                          className={`${
+                            idx % 2 === 0 ? "bg-[#fffaf0]" : "bg-[#f3ede2]"
+                          } border-b border-neutral-300 hover:bg-[#e8e0cf] transition`}
+                        >
+                          <TableCell>{w.label}</TableCell>
+                          <TableCell>{w.stats.totalTrades}</TableCell>
+                          <TableCell className="text-green-600">
+                            {w.stats.wins}
+                          </TableCell>
+                          <TableCell className="text-red-600">
+                            {w.stats.losses}
+                          </TableCell>
+                          <TableCell>{w.stats.breakeven}</TableCell>
+                          <TableCell>
+                            {w.stats.winRate.toFixed(1)}%
+                          </TableCell>
+                          <TableCell>
+                            {w.stats.profitFactor.toFixed(2)}
+                          </TableCell>
+                          <TableCell
+                            className={
+                              w.pnl > 0
+                                ? "text-green-600"
                                 : w.pnl < 0
-                                ? `- ${formatEuro(Math.abs(w.pnl))} €`
-                                : "0,00 €"}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  )}
-                </CardContent>
-              </Card>
+                                ? "text-red-600"
+                                : ""
+                            }
+                          >
+                            {w.pnl > 0
+                              ? `+ ${formatEuro(w.pnl)} €`
+                              : w.pnl < 0
+                              ? `- ${formatEuro(Math.abs(w.pnl))} €`
+                              : "0,00 €"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
             </section>
 
-            {/* 📆 MENSILE */}
+            {/* 📆 MENSILE (STILE JOURNAL) */}
             <section className="space-y-4 mb-10">
               <h2 className="text-2xl font-semibold">
                 Statistiche Mensili (ultimi 12 mesi filtrati)
               </h2>
-              <Card className="bg-slate-900 border-slate-800">
-                <CardContent className="p-0">
-                  {monthlyStats.length === 0 ? (
-                    <p className="p-4 text-sm text-neutral-400">
-                      Nessun dato mensile disponibile per i filtri attuali.
-                    </p>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Mese</TableHead>
-                          <TableHead>Trade</TableHead>
-                          <TableHead>Win</TableHead>
-                          <TableHead>Loss</TableHead>
-                          <TableHead>Pareggi</TableHead>
-                          <TableHead>Win Rate</TableHead>
-                          <TableHead>Profit Factor</TableHead>
-                          <TableHead>PnL</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {monthlyStats.map((m) => (
-                          <TableRow key={m.key}>
-                            <TableCell>{m.label}</TableCell>
-                            <TableCell>{m.stats.totalTrades}</TableCell>
-                            <TableCell className="text-green-400">
-                              {m.stats.wins}
-                            </TableCell>
-                            <TableCell className="text-red-400">
-                              {m.stats.losses}
-                            </TableCell>
-                            <TableCell>{m.stats.breakeven}</TableCell>
-                            <TableCell>
-                              {m.stats.winRate.toFixed(1)}%
-                            </TableCell>
-                            <TableCell>
-                              {m.stats.profitFactor.toFixed(2)}
-                            </TableCell>
-                            <TableCell
-                              className={
-                                m.pnl > 0
-                                  ? "text-green-400"
-                                  : m.pnl < 0
-                                  ? "text-red-400"
-                                  : ""
-                              }
-                            >
-                              {m.pnl > 0
-                                ? `+ ${formatEuro(m.pnl)} €`
+              <div className="w-full overflow-auto rounded-xl shadow-2xl border border-neutral-700 bg-[#faf7f2]">
+                {monthlyStats.length === 0 ? (
+                  <p className="p-4 text-sm text-neutral-700">
+                    Nessun dato mensile disponibile per i filtri attuali.
+                  </p>
+                ) : (
+                  <Table className="min-w-[900px] text-black">
+                    <TableHeader className="bg-[#e8e2d5]">
+                      <TableRow>
+                        <TableHead>Mese</TableHead>
+                        <TableHead>Trade</TableHead>
+                        <TableHead>Win</TableHead>
+                        <TableHead>Loss</TableHead>
+                        <TableHead>Pareggi</TableHead>
+                        <TableHead>Win Rate</TableHead>
+                        <TableHead>Profit Factor</TableHead>
+                        <TableHead>PnL</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {monthlyStats.map((m, idx) => (
+                        <TableRow
+                          key={m.key}
+                          className={`${
+                            idx % 2 === 0 ? "bg-[#fffaf0]" : "bg-[#f3ede2]"
+                          } border-b border-neutral-300 hover:bg-[#e8e0cf] transition`}
+                        >
+                          <TableCell>{m.label}</TableCell>
+                          <TableCell>{m.stats.totalTrades}</TableCell>
+                          <TableCell className="text-green-600">
+                            {m.stats.wins}
+                          </TableCell>
+                          <TableCell className="text-red-600">
+                            {m.stats.losses}
+                          </TableCell>
+                          <TableCell>{m.stats.breakeven}</TableCell>
+                          <TableCell>
+                            {m.stats.winRate.toFixed(1)}%
+                          </TableCell>
+                          <TableCell>
+                            {m.stats.profitFactor.toFixed(2)}
+                          </TableCell>
+                          <TableCell
+                            className={
+                              m.pnl > 0
+                                ? "text-green-600"
                                 : m.pnl < 0
-                                ? `- ${formatEuro(Math.abs(m.pnl))} €`
-                                : "0,00 €"}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  )}
-                </CardContent>
-              </Card>
+                                ? "text-red-600"
+                                : ""
+                            }
+                          >
+                            {m.pnl > 0
+                              ? `+ ${formatEuro(m.pnl)} €`
+                              : m.pnl < 0
+                              ? `- ${formatEuro(Math.abs(m.pnl))} €`
+                              : "0,00 €"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
             </section>
           </>
         )}

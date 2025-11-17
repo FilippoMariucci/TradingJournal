@@ -1,38 +1,79 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 
+// 🔥 Calcolo PnL coerente con percentuale
+function computeDisplayPnl(
+  result: string | null,
+  amount: number | null,
+  rr: number | null
+) {
+  if (!result || !amount) return 0;
+
+  const res = result.toLowerCase().trim();
+
+  // ➕ PRESA → amount * rr%
+  if (res.includes("presa")) {
+    if (rr && rr > 0) return (amount * rr) / 100; // esatto per OTC
+    return amount; // fallback
+  }
+
+  // ➖ PERSA → sempre -amount
+  if (res.includes("persa")) {
+    return -Math.abs(amount);
+  }
+
+  // 🟰 PAREGGIO / PARI
+  return 0;
+}
+
 export async function POST(req: Request) {
   try {
-    const data = await req.json();
+    const body = await req.json();
 
-    // Calcolo equity automatica
-    const lastTrade = await prisma.trade.findFirst({
+    const amount = body.amount ? Number(body.amount) : null;
+    const rr = body.riskReward ? Number(body.riskReward) : null;
+
+    // 🔥 Calcolo PnL corretto
+    const pnl = computeDisplayPnl(body.result, amount, rr);
+
+    // Recupero ultimo trade per equity e importOrder
+    const last = await prisma.trade.findFirst({
       orderBy: { importOrder: "desc" },
     });
 
-    const previousEquity = lastTrade?.equity ?? 700; // budget iniziale
-
-    let pnl = 0;
-    if (data.result === "Presa") pnl = Number(data.amount);
-    if (data.result === "Persa") pnl = -Math.abs(Number(data.amount));
-    if (data.result === "Pareggio") pnl = 0;
-
+    const previousEquity = last?.equity ?? 700; // equity iniziale
     const newEquity = previousEquity + pnl;
 
-    const created = await prisma.trade.create({
+    const newOrder = (last?.importOrder ?? 0) + 1;
+
+    // 🔥 CREAZIONE TRADE
+    const trade = await prisma.trade.create({
       data: {
-        ...data,
+        importOrder: newOrder,
+
+        date: body.date ? new Date(body.date) : null,
+        dayOfWeek: body.dayOfWeek || null,
+        currencyPair: body.currencyPair || null,
+        positionType: body.positionType || null,
+        openTime: body.openTime || null,
+        groupType: body.groupType || null,
+
+        result: body.result || null,
+        amount: amount,
+        riskReward: rr,
+        notes: body.notes || null,
+
         pnl,
         equity: newEquity,
-        importOrder: (lastTrade?.importOrder ?? 0) + 1,
-        numericResult:
-          data.result === "Presa" ? 1 : data.result === "Persa" ? -1 : 0,
       },
     });
 
-    return NextResponse.json(created);
-  } catch (e) {
-    console.error(e);
-    return NextResponse.json({ error: "Errore creazione trade" }, { status: 500 });
+    return NextResponse.json(trade);
+  } catch (err) {
+    console.error("CREATE ERROR", err);
+    return NextResponse.json(
+      { error: "Errore durante la creazione del trade" },
+      { status: 500 }
+    );
   }
 }

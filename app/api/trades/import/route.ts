@@ -1,17 +1,10 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import prisma from "@/lib/prisma";
+import { getServerSession } from "next-auth";
+import { authOptions } from "../../auth/[...nextauth]/route";
 
-// Normalizza stringhe rimuovendo caratteri strani
 function normalize(str: string) {
-  return str
-    .replace(/�/g, "") // simboli rotti
-    .replace(/\u00A0/g, " ") // NBSP
-    .trim();
-}
-
-// Funzione per accedere in sicurezza a r[col]
-function safe(r: any, colIndex: string | undefined) {
-  return colIndex !== undefined && r[colIndex] !== undefined ? r[colIndex] : null;
+  return str.replace(/�/g, "").replace(/\u00A0/g, " ").trim();
 }
 
 function detectColumns(header: string[]) {
@@ -40,39 +33,32 @@ function detectColumns(header: string[]) {
   };
 }
 
-function parseEuroNumber(v: any) {
-  if (!v || typeof v !== "string") return null;
-  const cleaned = v
-    .replace(/€/g, "")
-    .replace(/�/g, "")
-    .replace(/\./g, "")
-    .replace(",", ".")
-    .trim();
-
-  const num = Number(cleaned);
-  return isNaN(num) ? null : num;
+function parseEuroNumber(v: string | null) {
+  if (!v) return null;
+  return Number(
+    v
+      .replace(/€/g, "")
+      .replace(/�/g, "")
+      .replace(/\./g, "")
+      .replace(",", ".")
+      .trim()
+  );
 }
 
-function parsePercent(v: any) {
-  if (!v || typeof v !== "string") return null;
-
-  const cleaned = v.replace("%", "").replace(",", ".").trim();
-  const num = Number(cleaned);
-  return isNaN(num) ? null : num;
+function parsePercent(p: string | null) {
+  if (!p) return null;
+  return Number(p.replace("%", "").replace(",", ".").trim());
 }
 
-function parseDateAndTime(dateStr: any, timeStr: any) {
-  if (!dateStr || typeof dateStr !== "string") return null;
+function parseDateAndTime(data: string, time: string) {
+  if (!data) return null;
+  const [d, m, y] = data.split("/");
+  if (!d || !m || !y) return null;
 
-  const [day, month, year] = dateStr.split("/");
-  if (!day || !month || !year) return null;
-
-  const time = typeof timeStr === "string" && timeStr.includes(":") ? timeStr : "00:00";
-
-  const full = `${year}-${month}-${day}T${time}:00`;
-
-  const d = new Date(full);
-  return isNaN(d.getTime()) ? null : d;
+  if (time && time.includes(":")) {
+    return new Date(`${y}-${m}-${d}T${time}:00`);
+  }
+  return new Date(`${y}-${m}-${d}T00:00:00`);
 }
 
 function isRowComplete(r: any, col: any) {
@@ -90,10 +76,18 @@ function isRowComplete(r: any, col: any) {
     col.numericResult,
   ];
 
-  return required.every((key) => safe(r, key));
+  return required.every((key) => {
+    const v = r[key];
+    return v && v.toString().trim() !== "";
+  });
 }
 
 export async function POST(req: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session) {
+    return NextResponse.json({ error: "Non autorizzato" }, { status: 401 });
+  }
+
   try {
     const rows = await req.json();
 
@@ -104,55 +98,55 @@ export async function POST(req: Request) {
       );
     }
 
+    // 📌 RECUPERIAMO L’ULTIMO TRADE PER AVERE LA NUMERAZIONE CORRETTA
+    const lastTrade = await prisma.trade.findFirst({
+      orderBy: { importOrder: "desc" },
+    });
+
+    let importOrder = lastTrade ? lastTrade.importOrder + 1 : 1;
+
     const header = Object.keys(rows[0]);
     const col = detectColumns(header);
 
-    let importOrder = 1;
-
     for (const r of rows) {
       if (!isRowComplete(r, col)) {
-        console.log("SKIPPED ROW (incomplete):", r);
+        console.log("SKIPPED:", r);
         continue;
       }
 
-      const rawEquity = safe(r, col.equity);
-      const equity =
-        rawEquity && !String(rawEquity).includes("#VAL")
-          ? parseEuroNumber(rawEquity)
-          : null;
-
       await prisma.trade.create({
         data: {
-          importOrder: importOrder++,
-          tradeNumber: Number(safe(r, col.trade)) || importOrder,
+          importOrder: importOrder,
+          tradeNumber: importOrder,
+          
+          date: parseDateAndTime(r[col.date], r[col.openTime]),
+          dayOfWeek: r[col.day],
+          currencyPair: r[col.currency],
+          positionType: r[col.position],
+          openTime: r[col.openTime],
+          groupType: r[col.group],
+          result: r[col.result],
 
-          date: parseDateAndTime(safe(r, col.date), safe(r, col.openTime)),
-          dayOfWeek: safe(r, col.day),
-          currencyPair: safe(r, col.currency),
-          positionType: safe(r, col.position),
-          openTime: safe(r, col.openTime),
-          groupType: safe(r, col.group),
-          result: safe(r, col.result),
+          amount: parseEuroNumber(r[col.amount]),
+          riskReward: parsePercent(r[col.rr]),
+          pnl: parseEuroNumber(r[col.pnl]),
 
-          amount: parseEuroNumber(safe(r, col.amount)),
-          riskReward: parsePercent(safe(r, col.rr)),
-          pnl: parseEuroNumber(safe(r, col.pnl)),
-          equity,
+          equity:
+            r[col.equity] && !String(r[col.equity]).includes("#VALORE")
+              ? parseEuroNumber(r[col.equity])
+              : null,
 
-          notes: safe(r, col.notes) || "",
-          numericResult: safe(r, col.numericResult)
-            ? Number(safe(r, col.numericResult))
-            : null,
+          notes: r[col.notes] || "",
+          numericResult: Number(r[col.numericResult]),
         },
       });
+
+      importOrder++; // 🔥 Incrementiamo DOPO, NON PRIMA
     }
 
     return NextResponse.json({ success: true });
   } catch (e) {
     console.error("IMPORT ERROR", e);
-    return NextResponse.json(
-      { error: "Import failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Import failed" }, { status: 500 });
   }
 }

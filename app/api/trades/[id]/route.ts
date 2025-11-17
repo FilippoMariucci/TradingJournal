@@ -1,54 +1,124 @@
-import { prisma } from "@/lib/db";
 import { NextResponse } from "next/server";
+import prisma from "@/lib/prisma";
 
-// GET /api/trades/:id
-export async function GET(req: Request, context: any) {
-  const { id } = await context.params;        // <-- QUI LA DIFFERENZA IMPORTANTE
-  const tradeId = Number(id);
+// 🔥 Calcolo PnL identico al create
+function computeDisplayPnl(
+  result: string | null,
+  amount: number | null,
+  rr: number | null
+) {
+  if (!result || !amount) return 0;
 
-  console.log("GET ID:", tradeId);
+  const res = result.toLowerCase().trim();
 
-  const trade = await prisma.trade.findUnique({
-    where: { id: tradeId },
-  });
+  // ➕ PRESA → amount * rr%
+  if (res.includes("presa")) {
+    if (rr && rr > 0) return (amount * rr) / 100;
+    return amount; // fallback
+  }
 
-  return NextResponse.json(trade);
+  // ➖ PERSA → -amount
+  if (res.includes("persa")) {
+    return -Math.abs(amount);
+  }
+
+  // 🟰 PAREGGIO
+  return 0;
 }
 
-// PUT /api/trades/:id
-export async function PUT(req: Request, context: any) {
-  const { id } = await context.params; 
-  const tradeId = Number(id);
-  const data = await req.json();
+export async function PATCH(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const id = Number(params.id);
+    const body = await req.json();
 
-  console.log("UPDATE ID:", tradeId);
+    const amount = body.amount ? Number(body.amount) : null;
+    const rr = body.riskReward ? Number(body.riskReward) : null;
 
-  const updated = await prisma.trade.update({
-    where: { id: tradeId },
-    data: {
-      ticker: data.ticker,
-      type: data.type,
-      entryDate: new Date(data.entryDate),
-      entryPrice: Number(data.entryPrice),
-      quantity: Number(data.quantity),
-      exitDate: data.exitDate ? new Date(data.exitDate) : null,
-      exitPrice: data.exitPrice ? Number(data.exitPrice) : null,
-    },
-  });
+    // 🔥 Ricalcolo PnL per il trade modificato
+    const pnl = computeDisplayPnl(body.result, amount, rr);
 
-  return NextResponse.json(updated);
+    // Aggiorno il trade modificato (senza equity per ora)
+    const updated = await prisma.trade.update({
+      where: { id },
+      data: {
+        date: body.date ? new Date(body.date) : null,
+        dayOfWeek: body.dayOfWeek || null,
+        currencyPair: body.currencyPair || null,
+        positionType: body.positionType || null,
+        openTime: body.openTime || null,
+        groupType: body.groupType || null,
+        result: body.result || null,
+        amount,
+        riskReward: rr,
+        notes: body.notes || null,
+        pnl,
+      },
+    });
+
+    // 📌 ORA AGGIORNIAMO TUTTA L'EQUITY SUCCESSIVA
+
+    const allTrades = await prisma.trade.findMany({
+      orderBy: { importOrder: "asc" },
+    });
+
+    let equity = 700; // equity iniziale
+
+    for (const t of allTrades) {
+      const newPnl = t.id === updated.id ? pnl : t.pnl ?? 0;
+      equity += newPnl;
+
+      await prisma.trade.update({
+        where: { id: t.id },
+        data: { equity },
+      });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error("UPDATE ERROR", err);
+    return NextResponse.json(
+      { error: "Errore durante l'update del trade" },
+      { status: 500 }
+    );
+  }
 }
 
-// DELETE /api/trades/:id
-export async function DELETE(req: Request, context: any) {
-  const { id } = await context.params;
-  const tradeId = Number(id);
+export async function DELETE(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    await prisma.trade.delete({
+      where: { id: Number(params.id) },
+    });
 
-  console.log("DELETE ID:", tradeId);
+    // 📌 Dopo l'eliminazione, ricalcolo equity per coerenza
 
-  await prisma.trade.delete({
-    where: { id: tradeId },
-  });
+    const allTrades = await prisma.trade.findMany({
+      orderBy: { importOrder: "asc" },
+    });
 
-  return NextResponse.json({ success: true });
+    let equity = 700;
+
+    for (const t of allTrades) {
+      const pnl = t.pnl ?? 0;
+      equity += pnl;
+
+      await prisma.trade.update({
+        where: { id: t.id },
+        data: { equity },
+      });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error("DELETE ERROR", err);
+    return NextResponse.json(
+      { error: "Errore durante la cancellazione del trade" },
+      { status: 500 }
+    );
+  }
 }
