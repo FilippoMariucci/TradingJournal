@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
+import { prisma } from "@/lib/prisma"; // ✅
+
 
 // GET — Ritorna tutti i trade ordinati
 export async function GET() {

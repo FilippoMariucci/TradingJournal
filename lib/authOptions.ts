@@ -1,9 +1,7 @@
 import { NextAuthOptions } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
-
-const prisma = new PrismaClient();
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -14,16 +12,19 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) return null;
+        if (!credentials?.email || !credentials?.password) {
+          return null;
+        }
 
+        // Cerca l'utente nel database
         const user = await prisma.user.findUnique({
           where: { email: credentials.email },
         });
 
         if (!user) return null;
 
+        // Controlla la password
         const isValid = await bcrypt.compare(credentials.password, user.password);
-
         if (!isValid) return null;
 
         return {
@@ -34,21 +35,32 @@ export const authOptions: NextAuthOptions = {
       },
     }),
   ],
+
   session: {
     strategy: "jwt",
   },
+
   pages: {
     signIn: "/login",
   },
+
   callbacks: {
+    // Salva user.id nel token JWT
     async jwt({ token, user }) {
-      if (user) token.id = user.id;
+      if (user) {
+        (token as any).id = (user as any).id;
+      }
       return token;
     },
+
+    // Inserisce token.id in session.user.id
     async session({ session, token }) {
-      if (token) session.user.id = token.id;
+      if (session.user && token) {
+        (session.user as any).id = (token as any).id;
+      }
       return session;
     },
   },
+
   secret: process.env.NEXTAUTH_SECRET,
 };

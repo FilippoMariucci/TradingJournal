@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
+import { prisma } from "@/lib/prisma"; // ✅
+
 
 function computeDisplayPnl(result: string | null, amount: number | null, pnl: number | null) {
   if (pnl !== null && pnl !== undefined) return Number(pnl);
