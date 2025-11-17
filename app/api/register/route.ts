@@ -3,27 +3,21 @@ import { prisma } from "@/lib/prisma";
 import { hash } from "bcryptjs";
 
 export async function POST(req: Request) {
-  const data = await req.json();
+  try {
+    const data = await req.json();
+    const hashed = await hash(data.password, 10);
 
-  const hashed = await hash(data.password, 10);
+    await prisma.user.create({
+      data: {
+        email: data.email,
+        password: hashed,
+        name: data.name ?? null,
+      },
+    });
 
-  await prisma.user.create({
-    data: {
-      email: data.email,
-      password: hashed,
-      name: data.name ?? "",
-    },
-  });
-
-  return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("REGISTRATION ERROR:", error);
+    return NextResponse.json({ error: "Errore nella registrazione" }, { status: 500 });
+  }
 }
-
-fetch("/api/register", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    email: "admin@example.com",
-    password: "123456",
-    name: "Admin",
-  }),
-});
