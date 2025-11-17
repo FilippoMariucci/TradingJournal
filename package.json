@@ -12,13 +12,9 @@
     "@prisma/client": "^6.19.0",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-label": "^2.1.8",
-<<<<<<< HEAD
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-tabs": "^1.1.13",
-=======
-    "@radix-ui/react-slot": "^1.2.4",
->>>>>>> 9a907855d172c733c89957fb25b7e0babcbc0ab0
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.553.0",
@@ -26,20 +22,13 @@
     "papaparse": "^5.5.3",
     "react": "19.2.0",
     "react-dom": "19.2.0",
-<<<<<<< HEAD
     "recharts": "^3.4.1",
-=======
->>>>>>> 9a907855d172c733c89957fb25b7e0babcbc0ab0
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
-<<<<<<< HEAD
     "@types/react": "^19.2.5",
-=======
-    "@types/react": "^19",
->>>>>>> 9a907855d172c733c89957fb25b7e0babcbc0ab0
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.0.3",

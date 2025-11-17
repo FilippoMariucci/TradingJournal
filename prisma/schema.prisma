@@ -8,27 +8,24 @@ datasource db {
 }
 
 model Trade {
-  id                Int      @id @default(autoincrement())
-<<<<<<< HEAD
-  importOrder       Int
-=======
-  importOrder Int
->>>>>>> 9a907855d172c733c89957fb25b7e0babcbc0ab0
-  tradeNumber       Int?     
-  date              DateTime?     // 👈 AGGIUNTO "?"
-  dayOfWeek         String?
-  currencyPair      String?
-  positionType      String?
-  openTime          String?
-  groupType         String?
-  result            String?
-  amount            Float?
-  riskReward        Float?
-  pnl               Float?
-  equity            Float?
-  notes             String?
-  numericResult     Int?
+  id            Int       @id @default(autoincrement())
+  importOrder   Int
+  tradeNumber   Int?
+  date          DateTime?
+  dayOfWeek     String?
+  currencyPair  String?
+  positionType  String?
+  openTime      String?
+  groupType     String?
+  result        String?
+  amount        Float?
+  riskReward    Float?
+  pnl           Float?
+  equity        Float?
+  notes         String?
+  numericResult Int?
 
+  // Extra trading fields
   ticker        String?
   type          String?
   entryDate     DateTime?
@@ -40,13 +37,7 @@ model Trade {
   createdAt     DateTime @default(now())
 }
 
-
-<<<<<<< HEAD
 model Settings {
   id            Int     @id @default(autoincrement())
   initialBudget Float   @default(700)
 }
-
-=======
->>>>>>> 9a907855d172c733c89957fb25b7e0babcbc0ab0
-
