@@ -4,9 +4,14 @@ import { prisma } from "@/lib/db";
 // Normalizza stringhe rimuovendo caratteri strani
 function normalize(str: string) {
   return str
-    .replace(/�/g, "") // togli simboli rotti
-    .replace(/\u00A0/g, " ") // NBSP → spazio normale
+    .replace(/�/g, "") // simboli rotti
+    .replace(/\u00A0/g, " ") // NBSP
     .trim();
+}
+
+// Funzione per accedere in sicurezza a r[col]
+function safe(r: any, colIndex: string | undefined) {
+  return colIndex !== undefined && r[colIndex] !== undefined ? r[colIndex] : null;
 }
 
 function detectColumns(header: string[]) {
@@ -22,41 +27,52 @@ function detectColumns(header: string[]) {
     group: header[n.indexOf("Tipo Gruppo")],
     result: header[n.indexOf("Risultato")],
 
-    // colonne reali del tuo CSV
     amount: header.find((h) => h.includes("Importo")),
     rr: header.find((h) => h.includes("Risk Reward")),
     pnl: header.find((h) => h.includes("Guadagno/Perdita")),
 
-    // equity: colonna che inizia con € o � e contiene una virgola
-    equity: header.find((h) => (h.includes("€") || h.includes("�")) && h.includes(",")),
+    equity: header.find(
+      (h) => (h.includes("€") || h.includes("�")) && h.includes(",")
+    ),
 
     notes: header[n.indexOf("Note")],
-
     numericResult: header.find((h) => normalize(h).includes("Esito Numerico")),
   };
 }
 
-function parseEuroNumber(v: string | null) {
-  if (!v) return null;
-  return Number(
-    v.replace(/€/g, "").replace(/�/g, "").replace(/\./g, "").replace(",", ".").trim()
-  );
+function parseEuroNumber(v: any) {
+  if (!v || typeof v !== "string") return null;
+  const cleaned = v
+    .replace(/€/g, "")
+    .replace(/�/g, "")
+    .replace(/\./g, "")
+    .replace(",", ".")
+    .trim();
+
+  const num = Number(cleaned);
+  return isNaN(num) ? null : num;
 }
 
-function parsePercent(p: string | null) {
-  if (!p) return null;
-  return Number(p.replace("%", "").replace(",", ".").trim());
+function parsePercent(v: any) {
+  if (!v || typeof v !== "string") return null;
+
+  const cleaned = v.replace("%", "").replace(",", ".").trim();
+  const num = Number(cleaned);
+  return isNaN(num) ? null : num;
 }
 
-function parseDateAndTime(data: string, time: string) {
-  if (!data) return null;
-  const [d, m, y] = data.split("/");
-  if (!d || !m || !y) return null;
+function parseDateAndTime(dateStr: any, timeStr: any) {
+  if (!dateStr || typeof dateStr !== "string") return null;
 
-  if (time && time.includes(":")) {
-    return new Date(`${y}-${m}-${d}T${time}:00`);
-  }
-  return new Date(`${y}-${m}-${d}T00:00:00`);
+  const [day, month, year] = dateStr.split("/");
+  if (!day || !month || !year) return null;
+
+  const time = typeof timeStr === "string" && timeStr.includes(":") ? timeStr : "00:00";
+
+  const full = `${year}-${month}-${day}T${time}:00`;
+
+  const d = new Date(full);
+  return isNaN(d.getTime()) ? null : d;
 }
 
 function isRowComplete(r: any, col: any) {
@@ -71,13 +87,10 @@ function isRowComplete(r: any, col: any) {
     col.amount,
     col.rr,
     col.pnl,
-    col.numericResult
+    col.numericResult,
   ];
 
-  return required.every((key) => {
-    const v = r[key];
-    return v && v.toString().trim() !== "";
-  });
+  return required.every((key) => safe(r, key));
 }
 
 export async function POST(req: Request) {
@@ -85,7 +98,10 @@ export async function POST(req: Request) {
     const rows = await req.json();
 
     if (!Array.isArray(rows) || rows.length === 0) {
-      return NextResponse.json({ error: "CSV vuoto o invalido" }, { status: 400 });
+      return NextResponse.json(
+        { error: "CSV vuoto o invalido" },
+        { status: 400 }
+      );
     }
 
     const header = Object.keys(rows[0]);
@@ -95,34 +111,38 @@ export async function POST(req: Request) {
 
     for (const r of rows) {
       if (!isRowComplete(r, col)) {
-        console.log("SKIPPED:", r);
+        console.log("SKIPPED ROW (incomplete):", r);
         continue;
       }
+
+      const rawEquity = safe(r, col.equity);
+      const equity =
+        rawEquity && !String(rawEquity).includes("#VAL")
+          ? parseEuroNumber(rawEquity)
+          : null;
 
       await prisma.trade.create({
         data: {
           importOrder: importOrder++,
-          tradeNumber: Number(r[col.trade]) || importOrder,
+          tradeNumber: Number(safe(r, col.trade)) || importOrder,
 
-          date: parseDateAndTime(r[col.date], r[col.openTime]),
-          dayOfWeek: r[col.day],
-          currencyPair: r[col.currency],
-          positionType: r[col.position],
-          openTime: r[col.openTime],
-          groupType: r[col.group],
-          result: r[col.result],
+          date: parseDateAndTime(safe(r, col.date), safe(r, col.openTime)),
+          dayOfWeek: safe(r, col.day),
+          currencyPair: safe(r, col.currency),
+          positionType: safe(r, col.position),
+          openTime: safe(r, col.openTime),
+          groupType: safe(r, col.group),
+          result: safe(r, col.result),
 
-          amount: parseEuroNumber(r[col.amount]),
-          riskReward: parsePercent(r[col.rr]),
-          pnl: parseEuroNumber(r[col.pnl]),
+          amount: parseEuroNumber(safe(r, col.amount)),
+          riskReward: parsePercent(safe(r, col.rr)),
+          pnl: parseEuroNumber(safe(r, col.pnl)),
+          equity,
 
-          equity:
-            r[col.equity] && !String(r[col.equity]).includes("#VALORE")
-              ? parseEuroNumber(r[col.equity])
-              : null,
-
-          notes: r[col.notes] || "",
-          numericResult: Number(r[col.numericResult]),
+          notes: safe(r, col.notes) || "",
+          numericResult: safe(r, col.numericResult)
+            ? Number(safe(r, col.numericResult))
+            : null,
         },
       });
     }
@@ -130,6 +150,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true });
   } catch (e) {
     console.error("IMPORT ERROR", e);
-    return NextResponse.json({ error: "Import failed" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Import failed" },
+      { status: 500 }
+    );
   }
 }

@@ -34,7 +34,7 @@ model Trade {
   exitDate      DateTime?
   exitPrice     Float?
 
-  createdAt     DateTime @default(now())
+  createdAt     DateTime  @default(now())
 }
 
 model Settings {

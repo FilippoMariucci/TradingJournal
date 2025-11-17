@@ -154,64 +154,62 @@ export default function TradeLogPage() {
 
   // 📊 STATISTICHE
   function getStats(list: Trade[]) {
-    let wins = 0;
-    let losses = 0;
-    let totalWinValue = 0;
-    let totalLossValue = 0;
-    let rrSum = 0;
-    let rrCount = 0;
+  let wins = 0;
+  let losses = 0;
+  let totalWinValue = 0;
+  let totalLossValue = 0;
+  let rrSum = 0;
+  let rrCount = 0;
 
-    list.forEach((t) => {
-      const dpnl = computeDisplayPnl(t);
-      const res = t.result?.toLowerCase() ?? "";
-      const amount = Number(t.amount ?? 0);
+  list.forEach((t) => {
+    const dpnl = computeDisplayPnl(t);
+    const res = t.result?.toLowerCase() ?? "";
+    const amount = Number(t.amount ?? 0);
 
-      if (res === "presa") {
-        wins++;
-        totalWinValue += dpnl;
-      } else if (res === "persa") {
-        losses++;
-        totalLossValue += Math.abs(dpnl || amount);
-      }
+    if (res === "presa") {
+      wins++;
+      totalWinValue += dpnl;
+    } else if (res === "persa") {
+      losses++;
+      totalLossValue += Math.abs(dpnl || amount);
+    }
 
-      if (
-        t.riskReward !== "" &&
-        t.riskReward !== null &&
-        t.riskReward !== undefined
-      ) {
-        rrSum += Number(t.riskReward);
-        rrCount++;
-      }
-    });
+    // ✅ FIX TIPI TS
+    if (typeof t.riskReward === "number" && !isNaN(t.riskReward)) {
+      rrSum += t.riskReward;
+      rrCount++;
+    }
+  });
 
-    const totalTrades = list.length;
-    const winLoss = wins + losses;
-    const winRate = winLoss > 0 ? (wins / winLoss) * 100 : 0;
+  const totalTrades = list.length;
+  const winLoss = wins + losses;
+  const winRate = winLoss > 0 ? (wins / winLoss) * 100 : 0;
 
-    const profitFactor =
-      totalLossValue > 0
-        ? totalWinValue / totalLossValue
-        : totalWinValue > 0
-        ? 999
-        : 0;
+  const profitFactor =
+    totalLossValue > 0
+      ? totalWinValue / totalLossValue
+      : totalWinValue > 0
+      ? 999
+      : 0;
 
-    const avgTrade =
-      totalTrades > 0
-        ? (totalWinValue - totalLossValue) / totalTrades
-        : 0;
+  const avgTrade =
+    totalTrades > 0
+      ? (totalWinValue - totalLossValue) / totalTrades
+      : 0;
 
-    return {
-      totalTrades,
-      wins,
-      losses,
-      winRate,
-      totalWinValue,
-      totalLossValue,
-      avgTrade,
-      profitFactor,
-      rrAverage: rrCount > 0 ? rrSum / rrCount : 0,
-    };
-  }
+  return {
+    totalTrades,
+    wins,
+    losses,
+    winRate,
+    totalWinValue,
+    totalLossValue,
+    avgTrade,
+    profitFactor,
+    rrAverage: rrCount > 0 ? rrSum / rrCount : 0,
+  };
+}
+
 
   // 🔍 FILTRI APPLICATI
   const filteredTrades = trades.filter((t) => {
