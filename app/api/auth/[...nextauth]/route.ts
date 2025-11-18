@@ -8,23 +8,24 @@ const handler = NextAuth({
     Credentials({
       name: "Credentials",
       credentials: {
-        email: { label: "Email", type: "email" },
+        email: { label: "Email", type: "text" },
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
 
-        const email = credentials.email.trim();
-        const password = credentials.password.trim();
-
         const user = await prisma.user.findUnique({
-          where: { email },
+          where: { email: credentials.email },
         });
 
         if (!user) return null;
 
-        const isValid = await bcrypt.compare(password, user.password);
-        if (!isValid) return null;
+        const valid = await bcrypt.compare(
+          credentials.password,
+          user.password
+        );
+
+        if (!valid) return null;
 
         return {
           id: String(user.id),
@@ -35,30 +36,27 @@ const handler = NextAuth({
     }),
   ],
 
-  session: {
-    strategy: "jwt",
-  },
+  session: { strategy: "jwt" },
 
   pages: {
     signIn: "/login",
   },
 
   callbacks: {
-  async jwt({ token, user }) {
-    if (user) {
-      (token as any).id = user.id;
-    }
-    return token;
-  },
+    async jwt({ token, user }) {
+      if (user) {
+        token.id = user.id;
+      }
+      return token;
+    },
 
-  async session({ session, token }) {
-    if (session.user && (token as any).id) {
-      (session.user as any).id = (token as any).id;
-    }
-    return session;
+    async session({ session, token }) {
+      if (session.user && token?.id) {
+        session.user.id = token.id;
+      }
+      return session;
+    },
   },
-},
-
 
   secret: process.env.NEXTAUTH_SECRET,
 });

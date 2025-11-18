@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma"; // ✅
 
-
 type Trade = {
   id: number;
   date: Date;

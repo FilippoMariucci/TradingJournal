@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma"; // ✅
+import { prisma } from "@/lib/prisma";
+import { auth } from "@/auth"; // ✅ NUOVO SISTEMA
 
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/authOptions";
 
 function normalize(str: string) {
   return str.replace(/�/g, "").replace(/\u00A0/g, " ").trim();
@@ -20,8 +19,8 @@ function detectColumns(header: string[]) {
     openTime: header[n.indexOf("Orario Apertura")],
     group: header[n.indexOf("Tipo Gruppo")],
     result: header[n.indexOf("Risultato")],
-
     amount: header.find((h) => h.includes("Importo")),
+
     rr: header.find((h) => h.includes("Risk Reward")),
     pnl: header.find((h) => h.includes("Guadagno/Perdita")),
 
@@ -30,7 +29,9 @@ function detectColumns(header: string[]) {
     ),
 
     notes: header[n.indexOf("Note")],
-    numericResult: header.find((h) => normalize(h).includes("Esito Numerico")),
+    numericResult: header.find((h) =>
+      normalize(h).includes("Esito Numerico")
+    ),
   };
 }
 
@@ -83,8 +84,10 @@ function isRowComplete(r: any, col: any) {
   });
 }
 
+
 export async function POST(req: Request) {
-  const session = await getServerSession(authOptions);
+  // 🔥 FIX — SISTEMA NUOVO DI NEXTAUTH
+  const session = await auth();
   if (!session) {
     return NextResponse.json({ error: "Non autorizzato" }, { status: 401 });
   }
@@ -99,7 +102,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // 📌 RECUPERIAMO L’ULTIMO TRADE PER AVERE LA NUMERAZIONE CORRETTA
     const lastTrade = await prisma.trade.findFirst({
       orderBy: { importOrder: "desc" },
     });
@@ -110,16 +112,13 @@ export async function POST(req: Request) {
     const col = detectColumns(header);
 
     for (const r of rows) {
-      if (!isRowComplete(r, col)) {
-        console.log("SKIPPED:", r);
-        continue;
-      }
+      if (!isRowComplete(r, col)) continue;
 
       await prisma.trade.create({
         data: {
-          importOrder: importOrder,
+          importOrder,
           tradeNumber: importOrder,
-          
+
           date: parseDateAndTime(r[col.date], r[col.openTime]),
           dayOfWeek: r[col.day],
           currencyPair: r[col.currency],
@@ -142,7 +141,7 @@ export async function POST(req: Request) {
         },
       });
 
-      importOrder++; // 🔥 Incrementiamo DOPO, NON PRIMA
+      importOrder++;
     }
 
     return NextResponse.json({ success: true });
