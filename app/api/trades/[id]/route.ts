@@ -6,12 +6,12 @@ import { prisma } from "@/lib/prisma";
 // ------------------------------------
 export async function GET(
   req: NextRequest,
-  context: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
-  const id = Number(context.params.id);
+  const { id } = await context.params;
 
   const trade = await prisma.trade.findUnique({
-    where: { id },
+    where: { id: Number(id) },
   });
 
   return NextResponse.json(trade);
@@ -22,14 +22,14 @@ export async function GET(
 // ------------------------------------
 export async function PATCH(
   req: NextRequest,
-  context: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
-  const id = Number(context.params.id);
+  const { id } = await context.params;
   const body = await req.json();
 
   try {
     const updated = await prisma.trade.update({
-      where: { id },
+      where: { id: Number(id) },
       data: body,
     });
 
@@ -48,13 +48,13 @@ export async function PATCH(
 // ------------------------------------
 export async function DELETE(
   req: NextRequest,
-  context: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
-  const id = Number(context.params.id);
+  const { id } = await context.params;
 
   try {
     await prisma.trade.delete({
-      where: { id },
+      where: { id: Number(id) },
     });
 
     return NextResponse.json({ success: true });
