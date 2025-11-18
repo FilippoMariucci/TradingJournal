@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/auth-options"; // ✔ IMPORT GIUSTO
+import { authOptions } from "@/app/api/auth/[...nextauth]/auth-options";
 
-// -----------------------------
-// FUNZIONI DI SUPPORTO
-// -----------------------------
-
+// -------------------------------
+// FUNZIONI UTILI
+// -------------------------------
 function normalize(str: string) {
   return str.replace(/�/g, "").replace(/\u00A0/g, " ").trim();
 }
@@ -15,7 +14,6 @@ function detectColumns(header: string[]) {
   const n = header.map((h) => normalize(h));
 
   return {
-    trade: header[n.indexOf("Trade")],
     date: header[n.indexOf("Data")],
     day: header[n.indexOf("Apertura Giorno")],
     currency: header[n.indexOf("Valuta")],
@@ -25,14 +23,8 @@ function detectColumns(header: string[]) {
     result: header[n.indexOf("Risultato")],
     amount: header.find((h) => h.includes("Importo")),
     rr: header.find((h) => h.includes("Risk Reward")),
-    pnl: header.find((h) => h.includes("Guadagno/Perdita")),
-    equity: header.find(
-      (h) => (h.includes("€") || h.includes("�")) && h.includes(",")
-    ),
     notes: header[n.indexOf("Note")],
-    numericResult: header.find((h) =>
-      normalize(h).includes("Esito Numerico")
-    ),
+    numericResult: header.find((h) => normalize(h).includes("Esito Numerico")),
   };
 }
 
@@ -48,20 +40,36 @@ function parseEuroNumber(v: string | null) {
   );
 }
 
-function parsePercent(p: string | null) {
-  if (!p) return null;
-  return Number(p.replace("%", "").replace(",", ".").trim());
+function parsePercent(v: string | null) {
+  if (!v) return null;
+  return Number(v.replace("%", "").replace(",", ".").trim());
 }
 
 function parseDateAndTime(data: string, time: string) {
   if (!data) return null;
+
   const [d, m, y] = data.split("/");
   if (!d || !m || !y) return null;
 
   if (time && time.includes(":")) {
     return new Date(`${y}-${m}-${d}T${time}:00`);
   }
+
   return new Date(`${y}-${m}-${d}T00:00:00`);
+}
+
+function computePnl(result: string | null, amount: number | null, rr: number | null) {
+  if (!result || !amount) return 0;
+
+  const r = result.toLowerCase().trim();
+
+  if (r.includes("presa") || r.includes("vinta")) {
+    return rr && rr > 0 ? (amount * rr) / 100 : amount;
+  }
+
+  if (r.includes("persa")) return -Math.abs(amount);
+
+  return 0; // pareggio
 }
 
 function isRowComplete(r: any, col: any) {
@@ -75,8 +83,6 @@ function isRowComplete(r: any, col: any) {
     col.result,
     col.amount,
     col.rr,
-    col.pnl,
-    col.numericResult,
   ];
 
   return required.every((key) => {
@@ -85,16 +91,18 @@ function isRowComplete(r: any, col: any) {
   });
 }
 
-// -----------------------------
-// FUNZIONE POST UNICA
-// -----------------------------
-
+// -------------------------------
+// POST — IMPORTAZIONE CSV
+// -------------------------------
 export async function POST(req: Request) {
-  // 🔒 Solo utenti loggati
   const session = await getServerSession(authOptions);
 
+  // ❌ Non loggato → non può importare
   if (!session) {
-    return NextResponse.json({ error: "Non autorizzato" }, { status: 401 });
+    return NextResponse.json(
+      { error: "Non autorizzato" },
+      { status: 401 }
+    );
   }
 
   try {
@@ -107,17 +115,29 @@ export async function POST(req: Request) {
       );
     }
 
-    const lastTrade = await prisma.trade.findFirst({
+    const last = await prisma.trade.findFirst({
       orderBy: { importOrder: "desc" },
     });
 
-    let importOrder = lastTrade ? lastTrade.importOrder + 1 : 1;
+    let importOrder = last ? last.importOrder + 1 : 1;
+    let previousEquity = last?.equity ?? 700;
 
     const header = Object.keys(rows[0]);
     const col = detectColumns(header);
 
     for (const r of rows) {
       if (!isRowComplete(r, col)) continue;
+
+      const amount = parseEuroNumber(r[col.amount]);
+      const rr = parsePercent(r[col.rr]);
+      const result = r[col.result];
+
+      // 🔥 CALCOLA PNL IN BACKEND
+      const pnl = computePnl(result, amount, rr);
+
+      // 🔥 CALCOLA NUOVA EQUITY
+      const equity = previousEquity + pnl;
+      previousEquity = equity;
 
       await prisma.trade.create({
         data: {
@@ -130,31 +150,32 @@ export async function POST(req: Request) {
           positionType: r[col.position],
           openTime: r[col.openTime],
           groupType: r[col.group],
-          result: r[col.result],
+          result,
 
-          amount: parseEuroNumber(r[col.amount]),
-          riskReward: parsePercent(r[col.rr]),
-          pnl: parseEuroNumber(r[col.pnl]),
-
-          equity:
-            r[col.equity] && !String(r[col.equity]).includes("#VALORE")
-              ? parseEuroNumber(r[col.equity])
-              : null,
+          amount,
+          riskReward: rr,
+          pnl,       // 🔥 NON DAL CSV, DAL BACKEND
+          equity,    // 🔥 NON DAL CSV, DAL BACKEND
 
           notes: r[col.notes] || "",
-          numericResult: Number(r[col.numericResult]),
+          numericResult: r[col.numericResult]
+            ? Number(r[col.numericResult])
+            : null,
         },
       });
 
       importOrder++;
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      message: "Importazione completata",
+    });
 
-  } catch (e) {
-    console.error("IMPORT ERROR", e);
+  } catch (error) {
+    console.error("IMPORT ERROR", error);
     return NextResponse.json(
-      { error: "Import failed" },
+      { error: "Errore durante l'importazione" },
       { status: 500 }
     );
   }

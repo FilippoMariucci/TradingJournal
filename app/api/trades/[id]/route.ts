@@ -4,12 +4,9 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/auth-options";
 
 // ----------------------------------------
-// GET → visibile a tutti (anche non loggati)
+// GET → visibile a tutti
 // ----------------------------------------
-export async function GET(
-  req: NextRequest,
-  context: { params: { id: string } }
-) {
+export async function GET(req: NextRequest, context: { params: { id: string } }) {
   const { id } = context.params;
 
   const trade = await prisma.trade.findUnique({
@@ -22,10 +19,7 @@ export async function GET(
 // ----------------------------------------
 // PATCH → SOLO se loggato
 // ----------------------------------------
-export async function PATCH(
-  req: NextRequest,
-  context: { params: { id: string } }
-) {
+export async function PATCH(req: NextRequest, context: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
 
   if (!session) {
@@ -39,12 +33,26 @@ export async function PATCH(
   const body = await req.json();
 
   try {
+    const allowedFields = {
+      date: body.date ? new Date(body.date) : null,
+      dayOfWeek: body.dayOfWeek ?? null,
+      currencyPair: body.currencyPair ?? null,
+      positionType: body.positionType ?? null,
+      openTime: body.openTime ?? null,
+      groupType: body.groupType ?? null,
+      result: body.result ?? null,
+      amount: body.amount ? Number(body.amount) : null,
+      riskReward: body.riskReward ? Number(body.riskReward) : null,
+      notes: body.notes ?? null,
+    };
+
     const updated = await prisma.trade.update({
       where: { id: Number(id) },
-      data: body,
+      data: allowedFields,
     });
 
     return NextResponse.json({ success: true, trade: updated });
+
   } catch (error) {
     console.error("PATCH ERROR", error);
     return NextResponse.json(
@@ -57,10 +65,7 @@ export async function PATCH(
 // ----------------------------------------
 // DELETE → SOLO se loggato
 // ----------------------------------------
-export async function DELETE(
-  req: NextRequest,
-  context: { params: { id: string } }
-) {
+export async function DELETE(req: NextRequest, context: { params: { id: string } }) {
   const session = await getServerSession(authOptions);
 
   if (!session) {
@@ -78,6 +83,7 @@ export async function DELETE(
     });
 
     return NextResponse.json({ success: true });
+
   } catch (error) {
     console.error("DELETE ERROR", error);
     return NextResponse.json(
