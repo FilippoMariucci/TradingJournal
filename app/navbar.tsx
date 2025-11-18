@@ -3,9 +3,6 @@
 import Link from "next/link";
 import { useSession, signIn, signOut } from "next-auth/react";
 
-const { data: session } = useSession();
-const isLogged = !!session;
-
 export default function Navbar() {
   const { data: session } = useSession();
   const isLogged = !!session;
@@ -29,7 +26,6 @@ export default function Navbar() {
           Statistiche
         </Link>
 
-        {/* 🔵 LOGIN OPZIONALE */}
         {!isLogged ? (
           <button
             onClick={() => signIn()}
