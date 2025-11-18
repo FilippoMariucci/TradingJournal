@@ -1,8 +1,6 @@
 {
   "compilerOptions": {
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["./*"]
-    }
-  }
+    "types": ["next-auth"]
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", "types"]
 }
