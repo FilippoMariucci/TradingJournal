@@ -19,7 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useSession } from "next-auth/react";
+
 
 type Trade = {
   id: number;
@@ -41,9 +41,8 @@ type Trade = {
 };
 
 export default function TradeLogPage() {
-  const { data: session } = useSession();
-  const isLogged = !!session;
-
+  
+  const isLogged = true;
   const [trades, setTrades] = useState<Trade[]>([]);
   const [csvData, setCsvData] = useState<any[]>([]);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
