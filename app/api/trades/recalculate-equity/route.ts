@@ -1,21 +1,11 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma"; // ✅
+import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../../auth/[...nextauth]/route";
+import { authOptions } from "@/app/api/auth/[...nextauth]/auth-options";
 
-
-export async function POST(req: Request) {
-  const session = await getServerSession(authOptions);
-
-  if (!session) {
-    return NextResponse.json(
-      { error: "Non autorizzato" },
-      { status: 401 }
-    );
-  }
-
-
+// 🔥 Calcolo corretto del PnL
 function computeDisplayPnl(result: string | null, amount: number | null, pnl: number | null) {
+  // Se ha già un PnL valido dal CSV → usa quello
   if (pnl !== null && pnl !== undefined) return Number(pnl);
 
   if (!result || !amount) return 0;
@@ -25,11 +15,21 @@ function computeDisplayPnl(result: string | null, amount: number | null, pnl: nu
   if (res.includes("presa")) return Math.abs(amount);
   if (res.includes("persa")) return -Math.abs(amount);
 
-  return 0;
+  return 0; // pareggi e casi speciali
 }
 
+// 🔥 SOLO POST → ricalcolo equity
 export async function POST() {
   try {
+    const session = await getServerSession(authOptions);
+
+    if (!session) {
+      return NextResponse.json(
+        { error: "Non autorizzato" },
+        { status: 401 }
+      );
+    }
+
     let equity = 700; // equity iniziale
 
     const trades = await prisma.trade.findMany({

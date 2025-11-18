@@ -1,19 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/auth"; // ✅ NUOVO SISTEMA
 import { getServerSession } from "next-auth";
-import { authOptions } from "../../auth/[...nextauth]/route";
+import { authOptions } from "@/app/api/auth/[...nextauth]/auth-options"; // ✔ IMPORT GIUSTO
 
-export async function POST(req: Request) {
-  const session = await getServerSession(authOptions);
-
-  if (!session) {
-    return NextResponse.json(
-      { error: "Non autorizzato" },
-      { status: 401 }
-    );
-  }
-
+// -----------------------------
+// FUNZIONI DI SUPPORTO
+// -----------------------------
 
 function normalize(str: string) {
   return str.replace(/�/g, "").replace(/\u00A0/g, " ").trim();
@@ -32,14 +24,11 @@ function detectColumns(header: string[]) {
     group: header[n.indexOf("Tipo Gruppo")],
     result: header[n.indexOf("Risultato")],
     amount: header.find((h) => h.includes("Importo")),
-
     rr: header.find((h) => h.includes("Risk Reward")),
     pnl: header.find((h) => h.includes("Guadagno/Perdita")),
-
     equity: header.find(
       (h) => (h.includes("€") || h.includes("�")) && h.includes(",")
     ),
-
     notes: header[n.indexOf("Note")],
     numericResult: header.find((h) =>
       normalize(h).includes("Esito Numerico")
@@ -96,10 +85,14 @@ function isRowComplete(r: any, col: any) {
   });
 }
 
+// -----------------------------
+// FUNZIONE POST UNICA
+// -----------------------------
 
 export async function POST(req: Request) {
-  // 🔥 FIX — SISTEMA NUOVO DI NEXTAUTH
-  const session = await auth();
+  // 🔒 Solo utenti loggati
+  const session = await getServerSession(authOptions);
+
   if (!session) {
     return NextResponse.json({ error: "Non autorizzato" }, { status: 401 });
   }
@@ -157,8 +150,12 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ success: true });
+
   } catch (e) {
     console.error("IMPORT ERROR", e);
-    return NextResponse.json({ error: "Import failed" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Import failed" },
+      { status: 500 }
+    );
   }
 }

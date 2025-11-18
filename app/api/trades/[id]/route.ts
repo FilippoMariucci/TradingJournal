@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/app/api/auth/[...nextauth]/auth-options";
 
-// GET single trade
-export async function GET(req: NextRequest, context: { params: Promise<{ id: string }> }) {
-  const { id } = await context.params;
+// ----------------------------------------
+// GET → visibile a tutti (anche non loggati)
+// ----------------------------------------
+export async function GET(
+  req: NextRequest,
+  context: { params: { id: string } }
+) {
+  const { id } = context.params;
 
   const trade = await prisma.trade.findUnique({
     where: { id: Number(id) },
@@ -12,9 +19,23 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
   return NextResponse.json(trade);
 }
 
-// PATCH update trade
-export async function PATCH(req: NextRequest, context: { params: Promise<{ id: string }> }) {
-  const { id } = await context.params;
+// ----------------------------------------
+// PATCH → SOLO se loggato
+// ----------------------------------------
+export async function PATCH(
+  req: NextRequest,
+  context: { params: { id: string } }
+) {
+  const session = await getServerSession(authOptions);
+
+  if (!session) {
+    return NextResponse.json(
+      { error: "Non autorizzato" },
+      { status: 401 }
+    );
+  }
+
+  const { id } = context.params;
   const body = await req.json();
 
   try {
@@ -25,13 +46,31 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
 
     return NextResponse.json({ success: true, trade: updated });
   } catch (error) {
-    return NextResponse.json({ error: "Errore nella modifica" }, { status: 500 });
+    console.error("PATCH ERROR", error);
+    return NextResponse.json(
+      { error: "Errore nella modifica" },
+      { status: 500 }
+    );
   }
 }
 
-// DELETE trade
-export async function DELETE(req: NextRequest, context: { params: Promise<{ id: string }> }) {
-  const { id } = await context.params;
+// ----------------------------------------
+// DELETE → SOLO se loggato
+// ----------------------------------------
+export async function DELETE(
+  req: NextRequest,
+  context: { params: { id: string } }
+) {
+  const session = await getServerSession(authOptions);
+
+  if (!session) {
+    return NextResponse.json(
+      { error: "Non autorizzato" },
+      { status: 401 }
+    );
+  }
+
+  const { id } = context.params;
 
   try {
     await prisma.trade.delete({
@@ -40,6 +79,10 @@ export async function DELETE(req: NextRequest, context: { params: Promise<{ id: 
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: "Errore nella cancellazione" }, { status: 500 });
+    console.error("DELETE ERROR", error);
+    return NextResponse.json(
+      { error: "Errore nella cancellazione" },
+      { status: 500 }
+    );
   }
 }

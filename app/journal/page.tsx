@@ -5,8 +5,6 @@ import Papa from "papaparse";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useSession } from "next-auth/react";
-
 import {
   Dialog,
   DialogContent,
@@ -21,7 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-
+import { useSession } from "next-auth/react";
 
 type Trade = {
   id: number;
@@ -43,10 +41,10 @@ type Trade = {
 };
 
 export default function TradeLogPage() {
-  
-  
+  // ✅ LOGIN REALE
   const { data: session } = useSession();
-const isLogged = !!session;
+  const isLogged = !!session;
+
   const [trades, setTrades] = useState<Trade[]>([]);
   const [csvData, setCsvData] = useState<any[]>([]);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -111,7 +109,7 @@ const isLogged = !!session;
   }
 
   async function importCsv() {
-    if (!csvData.length) return;
+    if (!csvData.length || !isLogged) return;
 
     setImporting(true);
     animateProgress();
@@ -129,8 +127,9 @@ const isLogged = !!session;
   }
 
   async function deleteAll() {
+    if (!isLogged) return;
     if (!confirm("Vuoi davvero eliminare tutti i trade?")) return;
-    await fetch("/api/trades/delate-all", { method: "DELETE" });
+    await fetch("/api/trades/delete-all", { method: "DELETE" }); // ✅ fix URL
     loadTrades();
   }
 
@@ -145,33 +144,36 @@ const isLogged = !!session;
   }
 
   function computeDisplayPnl(t: Trade) {
-  const amount = Number(t.amount ?? 0);
-  const realPnl = t.pnl !== null && t.pnl !== undefined ? Number(t.pnl) : null;
+    const amount = Number(t.amount ?? 0);
+    const realPnl =
+      t.pnl !== null && t.pnl !== undefined ? Number(t.pnl) : null;
 
-  const res = t.result?.toString().toLowerCase().trim() ?? "";
+    const res = t.result?.toString().toLowerCase().trim() ?? "";
 
-  // SE IL TRADE HA UN PNL REALE (CSV)
-  if (realPnl !== null) {
-    return realPnl;
-  }
+    // SE IL TRADE HA UN PNL REALE (CSV)
+    if (realPnl !== null) {
+      return realPnl;
+    }
 
-  // SE IL TRADE È MANUALE (nessun PNL)
-  if (res.includes("presa") || res.includes("vinta")) {
-    return Math.abs(amount);
-  }
+    // SE IL TRADE È MANUALE (nessun PNL)
+    if (res.includes("presa") || res.includes("vinta")) {
+      return Math.abs(amount);
+    }
 
-  if (res.includes("persa") || res.includes("loss")) {
-    return -Math.abs(amount);
-  }
+    if (res.includes("persa") || res.includes("loss")) {
+      return -Math.abs(amount);
+    }
 
-  if (res.includes("pari") || res.includes("pareggio") || res.includes("break")) {
+    if (
+      res.includes("pari") ||
+      res.includes("pareggio") ||
+      res.includes("break")
+    ) {
+      return 0;
+    }
+
     return 0;
   }
-
-  return 0;
-}
-
-
 
   function calculateTotalPnl(list: Trade[]) {
     return list.reduce((sum, t) => sum + computeDisplayPnl(t), 0);
@@ -311,6 +313,7 @@ const isLogged = !!session;
   }
 
   async function deleteTrade(id: number) {
+    if (!isLogged) return;
     if (!confirm("Vuoi eliminare questo trade?")) return;
     await fetch(`/api/trades/${id}`, {
       method: "DELETE",
@@ -322,7 +325,7 @@ const isLogged = !!session;
     e: React.FormEvent<HTMLFormElement>
   ) {
     e.preventDefault();
-    if (!editingTrade) return;
+    if (!editingTrade || !isLogged) return;
 
     const form = e.currentTarget;
     const formData = new FormData(form);
@@ -363,26 +366,67 @@ const isLogged = !!session;
       </p>
 
       {/* 🔥 AZIONI (solo loggati possono cancellare/importare) */}
-      <div className="flex flex-wrap gap-4 mb-6">
-        {isLogged && (
-          <Button
-            onClick={deleteAll}
-            className="bg-red-600 hover:bg-red-700 text-white"
-          >
-            Cancella tutto
-          </Button>
-        )}
+      <div className="flex flex-wrap gap-4 mb-6 items-center">
+        {isLogged ? (
+          <>
+            <Button
+              onClick={deleteAll}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              Cancella tutto
+            </Button>
 
-        {isLogged && (
-          <label className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-md cursor-pointer">
-            Importa CSV
-            <Input
-              type="file"
-              accept=".csv"
-              className="hidden"
-              onChange={handleCsvFile}
-            />
-          </label>
+            <label className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-md cursor-pointer">
+              Importa CSV
+              <Input
+                type="file"
+                accept=".csv"
+                className="hidden"
+                onChange={handleCsvFile}
+              />
+            </label>
+
+            <Button
+              onClick={async () => {
+                if (!confirm("Vuoi rinumerare tutti i trade in ordine crescente?")) return;
+
+                await fetch("/api/trades/renumber", {
+                  method: "POST",
+                });
+
+                await loadTrades();
+                alert("Numerazione completata!");
+              }}
+              className="bg-purple-600 hover:bg-purple-700 text-white"
+            >
+              Rinumerazione automatica
+            </Button>
+
+            <Button
+              className="bg-purple-600 hover:bg-purple-700 text-white"
+              onClick={async () => {
+                const ok = confirm("Vuoi davvero ricalcolare l'equity da zero?");
+                if (!ok) return;
+
+                const res = await fetch("/api/trades/recalculate-equity", {
+                  method: "POST",
+                });
+
+                if (res.ok) {
+                  alert("Equity ricalcolata correttamente!");
+                  loadTrades();
+                } else {
+                  alert("Errore durante il ricalcolo dell'equity.");
+                }
+              }}
+            >
+              🔄 Ricalcola Equity da Zero
+            </Button>
+          </>
+        ) : (
+          <p className="text-yellow-400 text-sm">
+            Effettua il login per importare, modificare o cancellare i trade.
+          </p>
         )}
 
         <Button
@@ -391,46 +435,7 @@ const isLogged = !!session;
         >
           Esporta CSV
         </Button>
-
-        <Button
-  onClick={async () => {
-    if (!confirm("Vuoi rinumerare tutti i trade in ordine crescente?")) return;
-
-    await fetch("/api/trades/renumber", {
-      method: "POST",
-    });
-
-    await loadTrades();
-    alert("Numerazione completata!");
-  }}
-  className="bg-purple-600 hover:bg-purple-700 text-white"
->
-  Rinumerazione automatica
-</Button>
-
-<Button
-  className="bg-purple-600 hover:bg-purple-700 text-white"
-  onClick={async () => {
-    const ok = confirm("Vuoi davvero ricalcolare l'equity da zero?");
-    if (!ok) return;
-
-    const res = await fetch("/api/trades/recalculate-equity", {
-      method: "POST",
-    });
-
-    if (res.ok) {
-      alert("Equity ricalcolata correttamente!");
-      loadTrades(); // 🔄 aggiorna subito la tabella
-    } else {
-      alert("Errore durante il ricalcolo dell'equity.");
-    }
-  }}
->
-  🔄 Ricalcola Equity da Zero
-</Button>
-
       </div>
-
 
       {/* ➕ INSERIMENTO MANUALE TRADE (solo loggati) */}
       {isLogged && (
@@ -693,236 +698,287 @@ const isLogged = !!session;
       </div>
 
       {/* TABELLA */}
-<div className="w-full max-w-[1600px] mx-auto">
-  <div className="max-h-[75vh] overflow-auto rounded-xl shadow-2xl border border-neutral-700 bg-[#faf7f2]">
-    <Table className="min-w-[1700px] text-black">
-      <TableHeader className="bg-[#e8e2d5] sticky top-0 z-10">
-        <TableRow>
-          {sortableHead("Trade", "tradeNumber")}
-          {sortableHead("Data", "date")}
-          {sortableHead("Giorno", "dayOfWeek")}
-          {sortableHead("Valuta", "currencyPair")}
-          {sortableHead("Posizione", "positionType")}
-          {sortableHead("Orario", "openTime")}
-          <TableHead>Tipo Gruppo</TableHead>
-          {sortableHead("Risultato", "result")}
-          {sortableHead("Importo (€)", "amount")}
-          {sortableHead("RR (%)", "riskReward")}
-          {sortableHead("Guadagno/Perdita (€)", "pnl")}
-          {sortableHead("Equity", "equity")}
-          <TableHead>Note</TableHead>
-          <TableHead>Esito</TableHead>
-          <TableHead className="sticky right-0 bg-[#e8e2d5] z-20 min-w-[170px] text-center">
-            Azioni
-          </TableHead>
-        </TableRow>
-      </TableHeader>
+      <div className="w-full max-w-[1600px] mx-auto">
+        <div className="max-h-[75vh] overflow-auto rounded-xl shadow-2xl border border-neutral-700 bg-[#faf7f2]">
+          <Table className="min-w-[1700px] text-black">
+            <TableHeader className="bg-[#e8e2d5] sticky top-0 z-10">
+              <TableRow>
+                {sortableHead("Trade", "tradeNumber")}
+                {sortableHead("Data", "date")}
+                {sortableHead("Giorno", "dayOfWeek")}
+                {sortableHead("Valuta", "currencyPair")}
+                {sortableHead("Posizione", "positionType")}
+                {sortableHead("Orario", "openTime")}
+                <TableHead>Tipo Gruppo</TableHead>
+                {sortableHead("Risultato", "result")}
+                {sortableHead("Importo (€)", "amount")}
+                {sortableHead("RR (%)", "riskReward")}
+                {sortableHead("Guadagno/Perdita (€)", "pnl")}
+                {sortableHead("Equity", "equity")}
+                <TableHead>Note</TableHead>
+                <TableHead>Esito</TableHead>
+                <TableHead className="sticky right-0 bg-[#e8e2d5] z-20 min-w-[170px] text-center">
+                  Azioni
+                </TableHead>
+              </TableRow>
+            </TableHeader>
 
-      <TableBody>
-        {finalTrades.map((t, i) => {
-          const displayPnl = computeDisplayPnl(t);
-          const isWin = displayPnl > 0;
-          const isLoss = displayPnl < 0;
+            <TableBody>
+              {finalTrades.map((t, i) => {
+                const displayPnl = computeDisplayPnl(t);
+                const isWin = displayPnl > 0;
+                const isLoss = displayPnl < 0;
 
-          return (
-            <TableRow
-              key={t.id}
-              className={`${
-                i % 2 === 0 ? "bg-[#fffaf0]" : "bg-[#f3ede2]"
-              } border-b border-neutral-300 hover:bg-[#e8e0cf] transition`}
-            >
-              <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
-                {t.tradeNumber}
-              </TableCell>
-
-              <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
-                {t.date ? new Date(t.date).toLocaleDateString("it-IT") : ""}
-              </TableCell>
-
-              <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
-                {t.dayOfWeek}
-              </TableCell>
-
-              <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
-                {t.currencyPair}
-              </TableCell>
-
-              <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
-                {t.positionType}
-              </TableCell>
-
-              <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
-                {t.openTime}
-              </TableCell>
-
-              <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
-                {t.groupType}
-              </TableCell>
-
-              <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
-                {t.result}
-              </TableCell>
-
-              <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
-                € {formatEuro(t.amount)}
-              </TableCell>
-
-              <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
-                {t.riskReward ?? ""}%
-              </TableCell>
-
-              <TableCell
-                className={`py-1 px-2 text-sm font-bold whitespace-nowrap ${
-                  isWin ? "text-green-600" : isLoss ? "text-red-600" : ""
-                }`}
-              >
-                {isWin
-                  ? `+ ${formatEuro(displayPnl)} €`
-                  : isLoss
-                  ? `- ${formatEuro(Math.abs(displayPnl))} €`
-                  : "0,00 €"}
-              </TableCell>
-
-              <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
-                € {formatEuro(t.equity)}
-              </TableCell>
-
-              <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
-                {t.notes}
-              </TableCell>
-
-              <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
-                {t.numericResult}
-              </TableCell>
-
-              <TableCell className="sticky right-0 bg-[#faf7f2] z-10 min-w-[170px] px-2 py-1 whitespace-nowrap">
-                <div className="flex gap-2 justify-center">
-                  <Button
-                    size="sm"
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1"
-                    onClick={() => {
-                      setEditingTrade(t);
-                      setShowEditModal(true);
-                    }}
+                return (
+                  <TableRow
+                    key={t.id}
+                    className={`${
+                      i % 2 === 0 ? "bg-[#fffaf0]" : "bg-[#f3ede2]"
+                    } border-b border-neutral-300 hover:bg-[#e8e0cf] transition`}
                   >
-                    Modifica
-                  </Button>
+                    <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
+                      {t.tradeNumber}
+                    </TableCell>
 
-                  <Button
-                    size="sm"
-                    className="bg-red-600 hover:bg-red-700 text-white px-3 py-1"
-                    onClick={() => deleteTrade(t.id)}
-                  >
-                    Elimina
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
-          );
-        })}
-      </TableBody>
-    </Table>
-  </div>
+                    <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
+                      {t.date
+                        ? new Date(t.date).toLocaleDateString("it-IT")
+                        : ""}
+                    </TableCell>
 
-  {/* DIALOG IMPORT */}
-  <Dialog open={showConfirmModal} onOpenChange={setShowConfirmModal}>
-    <DialogContent className="bg-[#111827] text-white border border-neutral-700 max-w-lg">
-      <DialogHeader>
-        <DialogTitle>Confermi l'importazione?</DialogTitle>
-      </DialogHeader>
+                    <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
+                      {t.dayOfWeek}
+                    </TableCell>
 
-      <p className="text-neutral-300 mt-3 text-sm">
-        Verranno inviati all'import <b>{csvCount}</b> record dal CSV.
-      </p>
+                    <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
+                      {t.currencyPair}
+                    </TableCell>
 
-      {importing && (
-        <div className="w-full h-3 bg-neutral-700 rounded mt-4 overflow-hidden">
-          <div className="h-full bg-green-500 transition-all" style={{ width: `${progress}%` }} />
+                    <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
+                      {t.positionType}
+                    </TableCell>
+
+                    <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
+                      {t.openTime}
+                    </TableCell>
+
+                    <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
+                      {t.groupType}
+                    </TableCell>
+
+                    <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
+                      {t.result}
+                    </TableCell>
+
+                    <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
+                      € {formatEuro(t.amount)}
+                    </TableCell>
+
+                    <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
+                      {t.riskReward ?? ""}%
+                    </TableCell>
+
+                    <TableCell
+                      className={`py-1 px-2 text-sm font-bold whitespace-nowrap ${
+                        isWin ? "text-green-600" : isLoss ? "text-red-600" : ""
+                      }`}
+                    >
+                      {isWin
+                        ? `+ ${formatEuro(displayPnl)} €`
+                        : isLoss
+                        ? `- ${formatEuro(Math.abs(displayPnl))} €`
+                        : "0,00 €"}
+                    </TableCell>
+
+                    <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
+                      € {formatEuro(t.equity)}
+                    </TableCell>
+
+                    <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
+                      {t.notes}
+                    </TableCell>
+
+                    <TableCell className="py-1 px-2 text-sm whitespace-nowrap">
+                      {t.numericResult}
+                    </TableCell>
+
+                    <TableCell className="sticky right-0 bg-[#faf7f2] z-10 min-w-[170px] px-2 py-1 whitespace-nowrap">
+                      {isLogged ? (
+                        <div className="flex gap-2 justify-center">
+                          <Button
+                            size="sm"
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1"
+                            onClick={() => {
+                              setEditingTrade(t);
+                              setShowEditModal(true);
+                            }}
+                          >
+                            Modifica
+                          </Button>
+
+                          <Button
+                            size="sm"
+                            className="bg-red-600 hover:bg-red-700 text-white px-3 py-1"
+                            onClick={() => deleteTrade(t.id)}
+                          >
+                            Elimina
+                          </Button>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-neutral-500">
+                          Login per modificare
+                        </span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         </div>
-      )}
 
-      <Button
-        className="w-full bg-green-600 hover:bg-green-700 mt-6"
-        onClick={importCsv}
-        disabled={importing}
-      >
-        {importing ? "Importazione in corso..." : "Importa ora"}
-      </Button>
-    </DialogContent>
-  </Dialog>
+        {/* DIALOG IMPORT */}
+        <Dialog open={showConfirmModal} onOpenChange={setShowConfirmModal}>
+          <DialogContent className="bg-[#111827] text-white border border-neutral-700 max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Confermi l&apos;importazione?</DialogTitle>
+            </DialogHeader>
 
-  {/* DIALOG DONE */}
-  <Dialog open={showDoneModal} onOpenChange={setShowDoneModal}>
-    <DialogContent className="bg-[#111827] text-white border border-neutral-700 max-w-sm">
-      <DialogHeader>
-        <DialogTitle>Importazione completata</DialogTitle>
-      </DialogHeader>
+            <p className="text-neutral-300 mt-3 text-sm">
+              Verranno inviati all&apos;import <b>{csvCount}</b> record dal CSV.
+            </p>
 
-      <p className="text-neutral-300 mt-3 text-sm">
-        I trade validi sono stati importati correttamente.
-      </p>
+            {importing && (
+              <div className="w-full h-3 bg-neutral-700 rounded mt-4 overflow-hidden">
+                <div
+                  className="h-full bg-green-500 transition-all"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            )}
 
-      <Button
-        className="w-full bg-blue-600 hover:bg-blue-700 mt-6"
-        onClick={() => setShowDoneModal(false)}
-      >
-        Chiudi
-      </Button>
-    </DialogContent>
-  </Dialog>
+            <Button
+              className="w-full bg-green-600 hover:bg-green-700 mt-6"
+              onClick={importCsv}
+              disabled={importing || !isLogged}
+            >
+              {importing ? "Importazione in corso..." : "Importa ora"}
+            </Button>
+          </DialogContent>
+        </Dialog>
 
-  {/* DIALOG EDIT */}
-  <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
-    <DialogContent className="bg-[#111827] text-white border border-neutral-700 max-w-lg">
-      <DialogHeader>
-        <DialogTitle>Modifica Trade</DialogTitle>
-      </DialogHeader>
+        {/* DIALOG DONE */}
+        <Dialog open={showDoneModal} onOpenChange={setShowDoneModal}>
+          <DialogContent className="bg-[#111827] text-white border border-neutral-700 max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Importazione completata</DialogTitle>
+            </DialogHeader>
 
-      {editingTrade && (
-        <form onSubmit={saveEditedTrade} className="grid grid-cols-2 gap-4 mt-4">
-          <Input
-            name="date"
-            type="datetime-local"
-            defaultValue={
-              editingTrade.date
-                ? new Date(editingTrade.date).toISOString().slice(0, 16)
-                : ""
-            }
-            className="bg-[#020617] border-neutral-700 col-span-2"
-          />
+            <p className="text-neutral-300 mt-3 text-sm">
+              I trade validi sono stati importati correttamente.
+            </p>
 
-          <Input name="dayOfWeek" defaultValue={editingTrade.dayOfWeek ?? ""} className="bg-[#020617] border-neutral-700" />
-          <Input name="currencyPair" defaultValue={editingTrade.currencyPair ?? ""} className="bg-[#020617] border-neutral-700" />
-          <Input name="positionType" defaultValue={editingTrade.positionType ?? ""} className="bg-[#020617] border-neutral-700" />
-          <Input name="openTime" defaultValue={editingTrade.openTime ?? ""} className="bg-[#020617] border-neutral-700" />
-          <Input name="groupType" defaultValue={editingTrade.groupType ?? ""} className="bg-[#020617] border-neutral-700" />
+            <Button
+              className="w-full bg-blue-600 hover:bg-blue-700 mt-6"
+              onClick={() => setShowDoneModal(false)}
+            >
+              Chiudi
+            </Button>
+          </DialogContent>
+        </Dialog>
 
-          <select
-            name="result"
-            defaultValue={editingTrade.result ?? ""}
-            className="bg-[#020617] border border-neutral-700 rounded-md px-2 py-2 col-span-2"
-          >
-            <option value="">Risultato</option>
-            <option value="Presa">Presa</option>
-            <option value="Persa">Persa</option>
-            <option value="Pareggio">Pareggio</option>
-            <option value="Pari">Pari</option>
-            <option value="Break-even">Break-even</option>
-          </select>
+        {/* DIALOG EDIT */}
+        <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
+          <DialogContent className="bg-[#111827] text-white border border-neutral-700 max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Modifica Trade</DialogTitle>
+            </DialogHeader>
 
-          <Input name="amount" type="number" step="0.01" defaultValue={editingTrade.amount ?? 0} className="bg-[#020617] border-neutral-700" />
-          <Input name="riskReward" type="number" step="0.01" defaultValue={editingTrade.riskReward ?? 0} className="bg-[#020617] border-neutral-700" />
+            {editingTrade && (
+              <form onSubmit={saveEditedTrade} className="grid grid-cols-2 gap-4 mt-4">
+                <Input
+                  name="date"
+                  type="datetime-local"
+                  defaultValue={
+                    editingTrade.date
+                      ? new Date(editingTrade.date).toISOString().slice(0, 16)
+                      : ""
+                  }
+                  className="bg-[#020617] border-neutral-700 col-span-2"
+                />
 
-          <Input name="notes" defaultValue={editingTrade.notes ?? ""} className="bg-[#020617] border-neutral-700 col-span-2" />
+                <Input
+                  name="dayOfWeek"
+                  defaultValue={editingTrade.dayOfWeek ?? ""}
+                  className="bg-[#020617] border-neutral-700"
+                />
+                <Input
+                  name="currencyPair"
+                  defaultValue={editingTrade.currencyPair ?? ""}
+                  className="bg-[#020617] border-neutral-700"
+                />
+                <Input
+                  name="positionType"
+                  defaultValue={editingTrade.positionType ?? ""}
+                  className="bg-[#020617] border-neutral-700"
+                />
+                <Input
+                  name="openTime"
+                  defaultValue={editingTrade.openTime ?? ""}
+                  className="bg-[#020617] border-neutral-700"
+                />
+                <Input
+                  name="groupType"
+                  defaultValue={editingTrade.groupType ?? ""}
+                  className="bg-[#020617] border-neutral-700"
+                />
 
-          <Button type="submit" className="bg-blue-600 hover:bg-blue-700 col-span-2 mt-2">
-            Salva modifiche
-          </Button>
-        </form>
-      )}
-    </DialogContent>
-  </Dialog>
-</div>
-</div>
+                <select
+                  name="result"
+                  defaultValue={editingTrade.result ?? ""}
+                  className="bg-[#020617] border border-neutral-700 rounded-md px-2 py-2 col-span-2"
+                >
+                  <option value="">Risultato</option>
+                  <option value="Presa">Presa</option>
+                  <option value="Persa">Persa</option>
+                  <option value="Pareggio">Pareggio</option>
+                  <option value="Pari">Pari</option>
+                  <option value="Break-even">Break-even</option>
+                </select>
+
+                <Input
+                  name="amount"
+                  type="number"
+                  step="0.01"
+                  defaultValue={editingTrade.amount ?? 0}
+                  className="bg-[#020617] border-neutral-700"
+                />
+                <Input
+                  name="riskReward"
+                  type="number"
+                  step="0.01"
+                  defaultValue={editingTrade.riskReward ?? 0}
+                  className="bg-[#020617] border-neutral-700"
+                />
+
+                <Input
+                  name="notes"
+                  defaultValue={editingTrade.notes ?? ""}
+                  className="bg-[#020617] border-neutral-700 col-span-2"
+                />
+
+                <Button
+                  type="submit"
+                  className="bg-blue-600 hover:bg-blue-700 col-span-2 mt-2"
+                  disabled={!isLogged}
+                >
+                  Salva modifiche
+                </Button>
+              </form>
+            )}
+          </DialogContent>
+        </Dialog>
+      </div>
+    </div>
   );
 }

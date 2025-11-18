@@ -1,22 +1,20 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma"; // ✅
+import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../../auth/[...nextauth]/route";
+import { authOptions } from "@/app/api/auth/[...nextauth]/auth-options";
 
-
-export async function POST(req: Request) {
-  const session = await getServerSession(authOptions);
-
-  if (!session) {
-    return NextResponse.json(
-      { error: "Non autorizzato" },
-      { status: 401 }
-    );
-  }
-
-
+// 🔥 SOLO POST → solo utenti loggati possono rinumerare
 export async function POST() {
   try {
+    const session = await getServerSession(authOptions);
+
+    if (!session) {
+      return NextResponse.json(
+        { error: "Non autorizzato" },
+        { status: 401 }
+      );
+    }
+
     const trades = await prisma.trade.findMany({
       orderBy: { importOrder: "asc" },
     });
@@ -39,6 +37,7 @@ export async function POST() {
       success: true,
       message: "Rinumerazione completata",
     });
+
   } catch (err) {
     console.error("RENUMBER ERROR", err);
     return NextResponse.json(

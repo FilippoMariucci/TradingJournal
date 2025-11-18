@@ -1,20 +1,10 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma"; // ✅
+import { prisma } from "@/lib/prisma";
 
 import { getServerSession } from "next-auth";
-import { authOptions } from "../../auth/[...nextauth]/route";
+import { authOptions } from "@/app/api/auth/[...nextauth]/auth-options"; // ✅ PATH DEFINITIVA
 
-
-export async function POST(req: Request) {
-  const session = await getServerSession(authOptions);
-
-  if (!session) {
-    return NextResponse.json(
-      { error: "Non autorizzato" },
-      { status: 401 }
-    );
-  } 
-// 🔥 Calcolo PnL coerente con percentuale
+// 🔥 Funzione PnL corretta
 function computeDisplayPnl(
   result: string | null,
   amount: number | null,
@@ -26,40 +16,49 @@ function computeDisplayPnl(
 
   // ➕ PRESA → amount * rr%
   if (res.includes("presa")) {
-    if (rr && rr > 0) return (amount * rr) / 100; // esatto per OTC
-    return amount; // fallback
+    if (rr && rr > 0) return (amount * rr) / 100;
+    return amount;
   }
 
-  // ➖ PERSA → sempre -amount
+  // ➖ PERSA → -amount
   if (res.includes("persa")) {
     return -Math.abs(amount);
   }
 
-  // 🟰 PAREGGIO / PARI
   return 0;
 }
 
 export async function POST(req: Request) {
   try {
+    const session = await getServerSession(authOptions);
+
+    // ❌ Non loggato → non può creare trade
+    if (!session) {
+      return NextResponse.json(
+        { error: "Non autorizzato" },
+        { status: 401 }
+      );
+    }
+
     const body = await req.json();
 
     const amount = body.amount ? Number(body.amount) : null;
     const rr = body.riskReward ? Number(body.riskReward) : null;
 
-    // 🔥 Calcolo PnL corretto
+    // 🔥 Calcolo PNL corretto
     const pnl = computeDisplayPnl(body.result, amount, rr);
 
-    // Recupero ultimo trade per equity e importOrder
+    // Recupero ultimo trade per equity
     const last = await prisma.trade.findFirst({
       orderBy: { importOrder: "desc" },
     });
 
-    const previousEquity = last?.equity ?? 700; // equity iniziale
+    const previousEquity = last?.equity ?? 700;
     const newEquity = previousEquity + pnl;
 
     const newOrder = (last?.importOrder ?? 0) + 1;
 
-    // 🔥 CREAZIONE TRADE
+    // 🔥 CREA TRADE
     const trade = await prisma.trade.create({
       data: {
         importOrder: newOrder,
@@ -82,6 +81,7 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json(trade);
+
   } catch (err) {
     console.error("CREATE ERROR", err);
     return NextResponse.json(
