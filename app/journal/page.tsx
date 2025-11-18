@@ -5,6 +5,8 @@ import Papa from "papaparse";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useSession } from "next-auth/react";
+
 import {
   Dialog,
   DialogContent,
@@ -42,7 +44,9 @@ type Trade = {
 
 export default function TradeLogPage() {
   
-  const isLogged = true;
+  
+  const { data: session } = useSession();
+const isLogged = !!session;
   const [trades, setTrades] = useState<Trade[]>([]);
   const [csvData, setCsvData] = useState<any[]>([]);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
