@@ -255,10 +255,7 @@ export default function MoneyManagementPage() {
     // Perdite consecutive globali
     let consec = 0;
     for (let i = trades.length - 1; i >= 0; i--) {
-      const pnlNum =
-        typeof trades[i].pnl === "number"
-          ? trades[i].pnl
-          : Number(trades[i].pnl) || 0;
+      const pnlNum = Number(trades[i].pnl) || 0;
       if (pnlNum < 0) consec++;
       else break;
     }
