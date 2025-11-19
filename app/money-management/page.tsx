@@ -305,28 +305,41 @@ export default function MoneyManagementPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           {GROUPS.map((g) => {
-            const s = stakeFor(g);
-            return (
-              <div key={g} className="border rounded p-3">
-                <h3 className="font-semibold">{g}</h3>
+  const s = stakeFor(g);
 
-                {s.allowed ? (
-                  <>
-                    <p className="text-xl font-bold">
-                      € {s.suggestedStake.toFixed(2)}
-                    </p>
-                    <p className="text-xs">
-                      Base: € {s.baseStake.toFixed(2)} — Kelly: €
-                      {s.kellyStake.toFixed(2)} — Rischio:
-                      {(s.usedRiskPercent * 100).toFixed(2)}%
-                    </p>
-                  </>
-                ) : (
-                  <p className="text-red-600 font-semibold">{s.reason}</p>
-                )}
-              </div>
-            );
-          })}
+  return (
+    <div key={g} className="border rounded p-3">
+      <div className="flex justify-between items-center">
+        <h3 className="font-semibold">{g}</h3>
+        <span className="text-xs text-muted-foreground">
+          WR combinato: {(s.combinedWinRate * 100).toFixed(1)}%
+        </span>
+      </div>
+
+      {s.allowed ? (
+        <>
+          <p className="text-xl font-bold mt-1">
+            € {s.suggestedStake.toFixed(2)}
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="text-red-600 font-semibold mt-1">{s.reason}</p>
+          <p className="text-sm mt-1">(valori teorici sotto):</p>
+        </>
+      )}
+
+      {/* MOSTRA SEMPRE I VALORI CALCOLATI */}
+      <div className="text-xs text-muted-foreground mt-2">
+        <p>Stake teorico: € {s.suggestedStake.toFixed(2)}</p>
+        <p>Base: € {s.baseStake.toFixed(2)}</p>
+        <p>Kelly ridotto: € {s.kellyStake.toFixed(2)}</p>
+        <p>Rischio: {(s.usedRiskPercent * 100).toFixed(2)}%</p>
+      </div>
+    </div>
+  );
+})}
+
         </CardContent>
       </Card>
     </div>
