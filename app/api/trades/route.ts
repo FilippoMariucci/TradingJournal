@@ -3,7 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/auth-options";
 
-// 🔥 Funzione PNL corretta
+// ----------------------
+// PNL CORRETTO
+// ----------------------
 function computePnl(result: string | null, amount: number | null, rr: number | null) {
   if (!result || !amount) return 0;
 
@@ -18,24 +20,31 @@ function computePnl(result: string | null, amount: number | null, rr: number | n
   // PERSA
   if (r.includes("persa") || r.includes("loss")) return -Math.abs(amount);
 
-  // PAREGGIO
-  return 0;
+  return 0; // pareggio o altro
 }
 
-// ---------------------------------------------
+// ----------------------
 // GET (pubblico)
-// ---------------------------------------------
+// ----------------------
 export async function GET() {
-  const trades = await prisma.trade.findMany({
-    orderBy: { importOrder: "asc" },
-  });
+  try {
+    const trades = await prisma.trade.findMany({
+      orderBy: { importOrder: "asc" },
+    });
 
-  return NextResponse.json(trades);
+    return NextResponse.json(trades);
+  } catch (err) {
+    console.error("GET /api/trades ERROR:", err);
+    return NextResponse.json(
+      { error: "Errore nel caricamento dei trades" },
+      { status: 500 }
+    );
+  }
 }
 
-// ---------------------------------------------
-// POST (solo loggati)
-// ---------------------------------------------
+// ----------------------
+// POST (solo utenti loggati)
+// ----------------------
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -49,50 +58,57 @@ export async function POST(req: Request) {
 
     const body = await req.json();
 
-    // Trova ultimo trade
+    // ultimo trade
     const last = await prisma.trade.findFirst({
       orderBy: { importOrder: "desc" },
     });
 
     const nextOrder = last ? last.importOrder + 1 : 1;
 
-    const amount = body.amount ? Number(body.amount) : null;
-    const rr = body.riskReward ? Number(body.riskReward) : null;
+    // Sanitizzazione numeri (NESSUN NaN MAI)
+    const amount = Number(body.amount) || 0;
+    const rr = Number(body.riskReward) || 0;
 
-    // 💰 PNL calcolato sempre dal backend
+    // calcolo pnl sul backend
     const pnl = computePnl(body.result, amount, rr);
 
-    // 💰 Equity calcolata sempre dal backend
+    // calcolo equity
     const previousEquity = last?.equity ?? 700;
     const newEquity = previousEquity + pnl;
 
-    // CREA TRADE
+    // Sanitizzazione helper
+    const n = (v: any) => (v !== undefined && v !== null && !isNaN(Number(v)) ? Number(v) : null);
+    const d = (v: any) => (v ? new Date(v) : null);
+
+    // CREATE
     const newTrade = await prisma.trade.create({
       data: {
         importOrder: nextOrder,
         tradeNumber: nextOrder,
 
-        date: body.date ? new Date(body.date) : null,
+        date: d(body.date),
         dayOfWeek: body.dayOfWeek || null,
         currencyPair: body.currencyPair || null,
         positionType: body.positionType || null,
         openTime: body.openTime || null,
         groupType: body.groupType || null,
         result: body.result || null,
-        amount,
-        riskReward: rr,
+
+        amount: n(body.amount),
+        riskReward: n(body.riskReward),
         pnl,
         equity: newEquity,
         notes: body.notes || null,
 
-        numericResult: body.numericResult ? Number(body.numericResult) : null,
+        // campi avanzati
+        numericResult: n(body.numericResult),
         ticker: body.ticker || null,
         type: body.type || null,
-        entryDate: body.entryDate ? new Date(body.entryDate) : null,
-        entryPrice: body.entryPrice ? Number(body.entryPrice) : null,
-        quantity: body.quantity ? Number(body.quantity) : null,
-        exitDate: body.exitDate ? new Date(body.exitDate) : null,
-        exitPrice: body.exitPrice ? Number(body.exitPrice) : null,
+        entryDate: d(body.entryDate),
+        entryPrice: n(body.entryPrice),
+        quantity: n(body.quantity),
+        exitDate: d(body.exitDate),
+        exitPrice: n(body.exitPrice),
       },
     });
 
@@ -100,7 +116,7 @@ export async function POST(req: Request) {
   } catch (err) {
     console.error("POST /api/trades ERROR:", err);
     return NextResponse.json(
-      { error: "Errore durante la creazione del trade" },
+      { error: "Errore durante la creazione del trade", details: String(err) },
       { status: 500 }
     );
   }
