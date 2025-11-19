@@ -7,7 +7,12 @@ export type MoneyManagementConfig = {
   kellyFactor: number;           // es. 0.25 = 25% del Kelly
   maxDailyLossPercent: number;   // es. 0.04 = 4% equity/giorno
   maxConsecutiveLosses: number;  // es. 3 perdite di fila
+  // ⭐ nuovi campi aggiunti
+  stakeMinimo: number;         // minimo in €
+  recoveryReduction: number;   // riduzione dello stake in modalità recovery (0.7 = 70%)
 };
+
+
 
 export type StatsInput = {
   equity: number;
