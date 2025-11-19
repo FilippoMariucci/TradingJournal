@@ -217,54 +217,66 @@ export default function MoneyManagementPage() {
     consecutiveLosses >= config.maxConsecutiveLosses;
   // ---------- STAKE PER GRUPPO (KELLY + CONFIDENCE + RECOVERY) ----------
   function getSuggestionForGroup(group: GroupType): StakeSuggestion {
-    const stats: StatsInput = {
-      equity,
-      winRateUser,
-      winRateGroup: winRateGroup[group],
-      payout: payoutAvg[group],
-      consecutiveLosses,
-      dailyPnLPercent,
-    };
+  const stats: StatsInput = {
+    equity,
+    winRateUser,
+    winRateGroup: winRateGroup[group],
+    payout: payoutAvg[group],
+    consecutiveLosses,
+    dailyPnLPercent,
+  };
 
-    // calcolo base (rischio base + controlli)
-    const base = calculateStakeSuggestion(config, stats);
+  // 1) Calcolo base (rischio base + controlli)
+  const base = calculateStakeSuggestion(config, stats);
 
-    // ---- 1) KELLY del gruppo ----
-    const WRg = winRateGroup[group] || 0.5;
-    const payout = payoutAvg[group] || 0.8;
+  // --------------------------------------------
+  // 2) KELLY VERO DEL GRUPPO
+  // --------------------------------------------
+  const WRg = winRateGroup[group] || 0.5;
+  const payout = payoutAvg[group] || 0.8;
 
-    const kellyRaw = ((WRg * (payout + 1)) - 1) / payout; // può essere negativo
-    const kellyAdjusted = Math.max(kellyRaw * config.kellyFactor, 0);
-    base.kellyStake = equity * kellyAdjusted;
+  const kellyRaw = ((WRg * (payout + 1)) - 1) / payout; // può essere negativo
+  const kellyAdjusted = Math.max(kellyRaw * config.kellyFactor, 0);
+  base.kellyStake = equity * kellyAdjusted;
 
-    // ---- 2) Kelly adattivo basato sul tuo WR personale ----
-    const adaptiveMultiplier = 1 + (winRateUser - 0.5);
-    base.kellyStake = base.kellyStake * adaptiveMultiplier;
+  // Kelly adattivo basato sul WR personale
+  const adaptiveMultiplier = 1 + (winRateUser - 0.5);
+  base.kellyStake = base.kellyStake * adaptiveMultiplier;
 
-    // ---- 3) CONFIDENCE MULTIPLIER ----
-    // calcolo il confidence index usando funzione già esistente
-    const confidence = getConfidenceIndex(group, base); // 0–100
-    const multiplier = confidence / 100; // 0.0–1.0
+  // --------------------------------------------
+  // 3) CONFIDENCE INDEX MIGLIORATO (NON LINEARE)
+  // --------------------------------------------
+  const confidence = getConfidenceIndex(group, base); // 0–100
 
-    // baseStake proporzionale alla qualità del gruppo
-    const adjustedBaseStake = base.baseStake * multiplier;
+  // Curva non-lineare (più sensibile alle differenze)
+  const multiplier = Math.pow(confidence / 100, 1.35); // 0–1 ma molto più differenziato
 
-    // ---- 4) Stake teorico (prima della recovery) ----
-    base.suggestedStake = Math.max(
-      adjustedBaseStake,
-      base.kellyStake,
-      config.stakeMinimo
-    );
+  const adjustedBaseStake = base.baseStake * multiplier;
 
-    // ---- 5) Recovery mode applicata DOPO ----
-    if (isDailyLossLimitHit || isConsecLimitHit) {
-      base.allowed = false;
-      base.reason = "Modalità Recovery attiva (stake ridotto del 70%)";
-      base.suggestedStake = base.suggestedStake * config.recoveryReduction;
-    }
+  // --------------------------------------------
+  // 4) STAKE TEORICO (PRIMA DEL RECOVERY E PRIMA DEL MINIMO)
+  // --------------------------------------------
+  let stakeTeorico = Math.max(
+    adjustedBaseStake,
+    base.kellyStake
+  );
 
-    return base;
+  // --------------------------------------------
+  // 5) RECOVERY MODE (APPLICATA PRIMA DEL MINIMO!)
+  // --------------------------------------------
+  if (isDailyLossLimitHit || isConsecLimitHit) {
+    base.allowed = false;
+    base.reason = "Modalità Recovery attiva (stake ridotto del 70%)";
+    stakeTeorico = stakeTeorico * config.recoveryReduction;
   }
+
+  // --------------------------------------------
+  // 6) APPLICO IL MINIMO SOLO ALLA FINE
+  // --------------------------------------------
+  base.suggestedStake = Math.max(stakeTeorico, config.stakeMinimo);
+
+  return base;
+}
 
   const stakeByGroup: Record<GroupType, StakeSuggestion> = {
     "Gruppo Live": getSuggestionForGroup("Gruppo Live"),
