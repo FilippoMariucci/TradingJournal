@@ -215,8 +215,7 @@ export default function MoneyManagementPage() {
     dailyPnLPercent <= -config.maxDailyLossPercent;
   const isConsecLimitHit =
     consecutiveLosses >= config.maxConsecutiveLosses;
-
-  // ---------- STAKE PER GRUPPO (KELLY + RECOVERY) ----------
+  // ---------- STAKE PER GRUPPO (KELLY + CONFIDENCE + RECOVERY) ----------
   function getSuggestionForGroup(group: GroupType): StakeSuggestion {
     const stats: StatsInput = {
       equity,
@@ -227,27 +226,37 @@ export default function MoneyManagementPage() {
       dailyPnLPercent,
     };
 
+    // calcolo base (rischio base + controlli)
     const base = calculateStakeSuggestion(config, stats);
 
-    // Kelly del gruppo (vero, non solo combinato)
+    // ---- 1) KELLY del gruppo ----
     const WRg = winRateGroup[group] || 0.5;
     const payout = payoutAvg[group] || 0.8;
-    const kellyRaw = ((WRg * (payout + 1)) - 1) / payout;
+
+    const kellyRaw = ((WRg * (payout + 1)) - 1) / payout; // può essere negativo
     const kellyAdjusted = Math.max(kellyRaw * config.kellyFactor, 0);
     base.kellyStake = equity * kellyAdjusted;
 
-    // Kelly adattivo in base al tuo WR personale
+    // ---- 2) Kelly adattivo basato sul tuo WR personale ----
     const adaptiveMultiplier = 1 + (winRateUser - 0.5);
     base.kellyStake = base.kellyStake * adaptiveMultiplier;
 
-    // Stake teorico: max tra Kelly, rischio base e minimo
+    // ---- 3) CONFIDENCE MULTIPLIER ----
+    // calcolo il confidence index usando funzione già esistente
+    const confidence = getConfidenceIndex(group, base); // 0–100
+    const multiplier = confidence / 100; // 0.0–1.0
+
+    // baseStake proporzionale alla qualità del gruppo
+    const adjustedBaseStake = base.baseStake * multiplier;
+
+    // ---- 4) Stake teorico (prima della recovery) ----
     base.suggestedStake = Math.max(
+      adjustedBaseStake,
       base.kellyStake,
-      base.baseStake,
       config.stakeMinimo
     );
 
-    // Recovery mode
+    // ---- 5) Recovery mode applicata DOPO ----
     if (isDailyLossLimitHit || isConsecLimitHit) {
       base.allowed = false;
       base.reason = "Modalità Recovery attiva (stake ridotto del 70%)";
@@ -267,6 +276,7 @@ export default function MoneyManagementPage() {
     ...GROUPS.map((g) => stakeByGroup[g].suggestedStake || 0),
     1
   );
+
 
   // ---------- CONFIDENCE INDEX + RATING ----------
   function getConfidenceIndex(group: GroupType, s: StakeSuggestion): number {
