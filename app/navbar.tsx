@@ -26,6 +26,14 @@ export default function Navbar() {
           Statistiche
         </Link>
 
+        {/* ⭐ NUOVO LINK */}
+        <Link
+          href="/money-management"
+          className="text-neutral-300 hover:text-white"
+        >
+          Money Management
+        </Link>
+
         {!isLogged ? (
           <button
             onClick={() => signIn()}
