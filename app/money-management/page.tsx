@@ -33,6 +33,12 @@ type EquityPoint = {
   equity: number;
 };
 
+type SimulatedTrade = {
+  n: number;
+  stake: string;
+  equity: string;
+};
+
 const GROUPS: GroupType[] = ["Gruppo Live", "Gruppo Elite Pro", "Bot"];
 
 export default function MoneyManagementPage() {
@@ -66,6 +72,7 @@ export default function MoneyManagementPage() {
     recoveryReduction: 0.7,
   });
 
+  // ---------- LOAD CONFIG & START EQUITY ----------
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -92,6 +99,7 @@ export default function MoneyManagementPage() {
     window.localStorage.setItem("startingEquity", String(startingEquity));
   }, [startingEquity]);
 
+  // ---------- LOAD TRADES ----------
   useEffect(() => {
     async function load() {
       const res = await fetch("/api/trades");
@@ -106,7 +114,7 @@ export default function MoneyManagementPage() {
           typeof t.payout === "number"
             ? t.payout
             : t.payout
-            ? Number(String(t.payout).replace("%", "")) / 100
+            ? Number(String(t.payout).replace("%", "").replace(",", ".")) / 100
             : 0.8,
       }));
 
@@ -116,9 +124,7 @@ export default function MoneyManagementPage() {
     load();
   }, []);
 
-  // ================================
-  // 📊 CALCOLO STATS
-  // ================================
+  // ---------- CALCOLO STATISTICHE ----------
   useEffect(() => {
     if (!trades.length) return;
 
@@ -142,20 +148,20 @@ export default function MoneyManagementPage() {
 
     const datedTrades = trades.filter((t) => t.date);
     let lastDayPnL = 0;
-
     let lastDateKey: string | null = null;
+
     if (datedTrades.length > 0) {
-      const last = datedTrades.reduce((acc, t) => {
-        return new Date(t.date!).getTime() > new Date(acc.date!).getTime()
+      const last = datedTrades.reduce((acc, t) =>
+        !acc.date || new Date(t.date!).getTime() > new Date(acc.date!).getTime()
           ? t
-          : acc;
-      });
+          : acc
+      );
       const d = new Date(last.date!);
       lastDateKey = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
     }
 
     sortedTrades.forEach((t, i) => {
-      const pnl = Number(t.pnl);
+      const pnl = Number(t.pnl) || 0;
       totalPnL += pnl;
       if (pnl > 0) wins++;
 
@@ -175,11 +181,10 @@ export default function MoneyManagementPage() {
       }
     });
 
-    const finalEq = startingEquity + totalPnL;
-    setEquity(finalEq);
+    setEquity(runningEquity);
     setEquityHistory(history);
 
-    const wrUser = wins / trades.length;
+    const wrUser = trades.length > 0 ? wins / trades.length : 0.5;
     setWinRateUser(wrUser);
 
     const wrGroup: Record<GroupType, number> = {
@@ -195,89 +200,61 @@ export default function MoneyManagementPage() {
 
     setWinRateGroup(wrGroup);
 
-    setDailyPnLPercent(finalEq !== 0 ? lastDayPnL / finalEq : 0);
+    setDailyPnLPercent(runningEquity !== 0 ? lastDayPnL / runningEquity : 0);
 
     let consec = 0;
     for (let i = trades.length - 1; i >= 0; i--) {
-      if (Number(trades[i].pnl) < 0) consec++;
+      const pnlNum = Number(trades[i].pnl) || 0;
+      if (pnlNum < 0) consec++;
       else break;
     }
     setConsecutiveLosses(consec);
   }, [trades, startingEquity]);
 
-  const isDailyLossLimitHit = dailyPnLPercent <= -config.maxDailyLossPercent;
-  const isConsecLimitHit = consecutiveLosses >= config.maxConsecutiveLosses;
+  const isDailyLossLimitHit =
+    dailyPnLPercent <= -config.maxDailyLossPercent;
+  const isConsecLimitHit =
+    consecutiveLosses >= config.maxConsecutiveLosses;
 
-  // ================================
-  // 🧠 STAKE: KELLY ADATTIVO + RECOVERY
-  // ================================
- function getSuggestionForGroup(group: GroupType): StakeSuggestion {
-  const stats: StatsInput = {
-    equity,
-    winRateUser,
-    winRateGroup: winRateGroup[group],  // <— WR del gruppo!
-    payout: payoutAvg[group],           // <— payout del gruppo
-    consecutiveLosses,
-    dailyPnLPercent,
-  };
+  // ---------- STAKE PER GRUPPO (KELLY + RECOVERY) ----------
+  function getSuggestionForGroup(group: GroupType): StakeSuggestion {
+    const stats: StatsInput = {
+      equity,
+      winRateUser,
+      winRateGroup: winRateGroup[group],
+      payout: payoutAvg[group],
+      consecutiveLosses,
+      dailyPnLPercent,
+    };
 
-  const base = calculateStakeSuggestion(config, stats);
+    const base = calculateStakeSuggestion(config, stats);
 
-  // ⭐ Kelly BASE DEL GRUPPO (reale)
-  const WR = winRateGroup[group] || 0.5;
-  const payout = payoutAvg[group] || 0.8;
+    // Kelly del gruppo (vero, non solo combinato)
+    const WRg = winRateGroup[group] || 0.5;
+    const payout = payoutAvg[group] || 0.8;
+    const kellyRaw = ((WRg * (payout + 1)) - 1) / payout;
+    const kellyAdjusted = Math.max(kellyRaw * config.kellyFactor, 0);
+    base.kellyStake = equity * kellyAdjusted;
 
-  const kellyRaw = ((WR * payout) - (1 - WR)) / payout;
-  const kellyAdjusted = Math.max(kellyRaw * config.kellyFactor, 0);
+    // Kelly adattivo in base al tuo WR personale
+    const adaptiveMultiplier = 1 + (winRateUser - 0.5);
+    base.kellyStake = base.kellyStake * adaptiveMultiplier;
 
-  base.kellyStake = stats.equity * kellyAdjusted;
-
-  // ⭐ Kelly adattivo
-  const adaptiveKellyMultiplier = 1 + (winRateUser - 0.5);
-  base.kellyStake = base.kellyStake * adaptiveKellyMultiplier;
-
-  // ⭐ stake teorico
-  base.suggestedStake = Math.max(
-    base.kellyStake,
-    base.baseStake,        // rischio base personale
-    config.stakeMinimo     // mai sotto il minimo
-  );
-
-  // ⭐ Recovery mode
-  if (stats.dailyPnLPercent <= -config.maxDailyLossPercent ||
-      stats.consecutiveLosses >= config.maxConsecutiveLosses) {
-
-    base.allowed = false;
-    base.reason = "Modalità Recovery attiva (stake ridotto del 70%)";
-    base.suggestedStake = base.suggestedStake * config.recoveryReduction;
-  }
-
-  return base;
-}
-
-
-    const result = calculateStakeSuggestion(config, stats);
-
-    // ⭐ Kelly adattivo
-    const adaptiveKellyMultiplier = 1 + (stats.winRateUser - 0.5);
-    result.kellyStake = Math.max(result.kellyStake * adaptiveKellyMultiplier, 0);
-
-    // ⭐ Stake minimo garantito
-    result.suggestedStake = Math.max(
-      result.suggestedStake,
-      result.kellyStake,
-      result.baseStake,
+    // Stake teorico: max tra Kelly, rischio base e minimo
+    base.suggestedStake = Math.max(
+      base.kellyStake,
+      base.baseStake,
       config.stakeMinimo
     );
 
-    // ⭐ Recovery mode
+    // Recovery mode
     if (isDailyLossLimitHit || isConsecLimitHit) {
-      result.allowed = false;
-      result.reason = "Modalità Recovery attiva (stake ridotto del 70%)";
-      result.suggestedStake = result.suggestedStake * config.recoveryReduction;
+      base.allowed = false;
+      base.reason = "Modalità Recovery attiva (stake ridotto del 70%)";
+      base.suggestedStake = base.suggestedStake * config.recoveryReduction;
     }
 
-    return result;
+    return base;
   }
 
   const stakeByGroup: Record<GroupType, StakeSuggestion> = {
@@ -286,44 +263,66 @@ export default function MoneyManagementPage() {
     Bot: getSuggestionForGroup("Bot"),
   };
 
-  // ================================
-  // 🔮 SIMULAZIONE FUTURI 5 TRADE (AVANZATA)
-  // ================================
-  function simulateFutureTrades() {
-    let simEq = equity;
+  const maxStake = Math.max(
+    ...GROUPS.map((g) => stakeByGroup[g].suggestedStake || 0),
+    1
+  );
 
-    return Array.from({ length: 5 }).map((_, i) => {
-      const group = GROUPS[i % GROUPS.length];
-      const s = stakeByGroup[group];
+  // ---------- CONFIDENCE INDEX + RATING ----------
+  function getConfidenceIndex(group: GroupType, s: StakeSuggestion): number {
+    const wr = winRateGroup[group] || 0.5; // 0–1
+    const payout = payoutAvg[group] || 0.8;
 
-      const stake = Number(s.suggestedStake) || config.stakeMinimo;
+    const wrScore = wr * 100; // 0–100
+    const payoutScore = Math.min(payout / 1.0, 1) * 100; // fino a payout 1.0
+    const riskScore =
+      100 - Math.min((s.usedRiskPercent * 100) / 3, 100); // più rischio = meno score
 
-      const WR = winRateUser || 0.5;
-      const payout = payoutAvg[group] || 0.8;
-
-      const EV = WR * payout - (1 - WR);
-
-      simEq = simEq + stake * EV;
-
-      return {
-        n: i + 1,
-        group,
-        stake: stake.toFixed(2),
-        equity: simEq.toFixed(2),
-      };
-    });
+    const total = 0.6 * wrScore + 0.2 * payoutScore + 0.2 * riskScore;
+    return Math.round(total);
   }
 
-  const future = simulateFutureTrades();
+  function getRatingStars(confidence: number): string {
+    const stars = Math.round((confidence / 100) * 5);
+    const filled = "★".repeat(stars);
+    const empty = "☆".repeat(5 - stars);
+    return filled + empty;
+  }
 
-  // ================================
-  // 🎨 RENDER
-  // ================================
+  // ---------- SIMULAZIONE SESSIONE (12 TRADE PER OGNI GRUPPO) ----------
+  function simulateSessionForGroup(group: GroupType): SimulatedTrade[] {
+    let simEq = equity;
+    const s = stakeByGroup[group];
+    const stake = Number(s.suggestedStake) || config.stakeMinimo;
+    const WRg = winRateGroup[group] || 0.5;
+    const payout = payoutAvg[group] || 0.8;
+
+    const EV = WRg * payout - (1 - WRg); // valore atteso per unità di stake
+
+    const res: SimulatedTrade[] = [];
+
+    for (let i = 0; i < 12; i++) {
+      simEq = simEq + stake * EV;
+      res.push({
+        n: i + 1,
+        stake: stake.toFixed(2),
+        equity: simEq.toFixed(2),
+      });
+    }
+
+    return res;
+  }
+
+  const futureLive = simulateSessionForGroup("Gruppo Live");
+  const futureElite = simulateSessionForGroup("Gruppo Elite Pro");
+  const futureBot = simulateSessionForGroup("Bot");
+
+  // ---------- RENDER ----------
   return (
     <div className="p-6 md:p-8 space-y-6">
       <h1 className="text-3xl font-bold">💰 Money Management</h1>
       <p className="text-sm text-muted-foreground">
-        Controllo completo del rischio basato su equity, winrate e gruppi.
+        Controllo completo del rischio basato su equity, winrate e gruppi (Live, Elite Pro, Bot).
       </p>
 
       {(isDailyLossLimitHit || isConsecLimitHit) && (
@@ -383,18 +382,15 @@ export default function MoneyManagementPage() {
                 <LineChart data={equityHistory}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="index" />
-                  <YAxis
-                    tickFormatter={(v) => `€ ${v}`}
-                    width={50}
-                  />
-                  <Tooltip formatter={(v) => `€ ${v}`} />
+                  <YAxis tickFormatter={(v) => `€ ${v}`} width={60} />
+                  <Tooltip formatter={(v: any) => `€ ${Number(v).toFixed(2)}`} />
                   <Legend />
                   <Line dataKey="equity" dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             ) : (
-              <p className="text-muted-foreground text-sm">
-                Nessun dato per costruire la curva.
+              <p className="text-sm text-muted-foreground">
+                Nessun trade disponibile per costruire la curva equity.
               </p>
             )}
           </CardContent>
@@ -408,36 +404,45 @@ export default function MoneyManagementPage() {
         </CardHeader>
         <CardContent className="grid md:grid-cols-2 gap-4 text-sm">
           <div>
-            Winrate personale:{" "}
-            <span className="font-semibold">
-              {(winRateUser * 100).toFixed(1)}%
-            </span>
+            <p className="font-semibold">
+              Winrate personale: {(winRateUser * 100).toFixed(1)}%
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Calcolato su tutti i trade registrati.
+            </p>
           </div>
-          <div>
-            <p>Gruppo Live: {(winRateGroup["Gruppo Live"] * 100).toFixed(1)}%</p>
+          <div className="space-y-1">
             <p>
-              Gruppo Elite Pro:{" "}
+              <span className="font-semibold">Gruppo Live:</span>{" "}
+              {(winRateGroup["Gruppo Live"] * 100).toFixed(1)}%
+            </p>
+            <p>
+              <span className="font-semibold">Gruppo Elite Pro:</span>{" "}
               {(winRateGroup["Gruppo Elite Pro"] * 100).toFixed(1)}%
             </p>
-            <p>Bot: {(winRateGroup["Bot"] * 100).toFixed(1)}%</p>
+            <p>
+              <span className="font-semibold">Bot:</span>{" "}
+              {(winRateGroup["Bot"] * 100).toFixed(1)}%
+            </p>
           </div>
         </CardContent>
       </Card>
 
-      {/* STAKE PER GRUPPO */}
+      {/* STAKE CONSIGLIATO PER GRUPPO + ANALISI */}
       <Card>
         <CardHeader>
           <CardTitle>Stake consigliato per gruppo</CardTitle>
         </CardHeader>
-
         <CardContent className="space-y-4">
           {GROUPS.map((g) => {
             const s = stakeByGroup[g];
+            const confidence = getConfidenceIndex(g, s);
+            const rating = getRatingStars(confidence);
+            const barWidth = `${(s.suggestedStake / maxStake) * 100}%`;
 
             return (
               <div key={g} className="border rounded p-3 flex flex-col gap-2">
-
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   <h3 className="font-semibold">{g}</h3>
                   <span className="text-xs text-muted-foreground">
                     WR combinato: {(s.combinedWinRate * 100).toFixed(1)}%
@@ -463,65 +468,97 @@ export default function MoneyManagementPage() {
                   {s.kellyStake.toFixed(2)} | Rischio:{" "}
                   {(s.usedRiskPercent * 100).toFixed(2)}%
                 </p>
+
+                {/* Confidence & rating */}
+                <div className="flex flex-wrap items-center gap-3 text-xs mt-1">
+                  <span>
+                    Confidence Index: <b>{confidence}/100</b>
+                  </span>
+                  <span>Rating: {rating}</span>
+                </div>
+
+                {/* Mini barra comparazione stake */}
+                <div className="mt-2 h-2 w-full bg-slate-200 rounded">
+                  <div
+                    className="h-2 rounded bg-blue-500"
+                    style={{ width: barWidth }}
+                  />
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  Lunghezza barra proporzionale allo stake teorico rispetto agli altri gruppi.
+                </p>
               </div>
             );
           })}
         </CardContent>
       </Card>
 
-      {/* SIMULAZIONE FUTURA */}
+      {/* SIMULAZIONE SESSIONE: 12 TRADE PER OGNI GRUPPO */}
       <Card>
         <CardHeader>
-          <CardTitle>Operazioni future consigliate</CardTitle>
+          <CardTitle>Simulazione sessione (12 trade) per gruppo</CardTitle>
         </CardHeader>
-        <CardContent className="text-sm">
-          <p className="text-muted-foreground mb-3">
-            Simulazione dei prossimi 5 trade basata su equity attuale, Kelly
-            adattivo e winrate.
+        <CardContent className="space-y-6 text-xs md:text-sm">
+          <p className="text-muted-foreground">
+            Ogni tabella mostra come potrebbe evolvere l&apos;equity nei prossimi 12 trade
+            se operassi solo con i segnali di quel gruppo.
           </p>
 
-          <div className="border rounded">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b">
-                  <th className="p-2 text-left">#</th>
-                  <th className="p-2 text-left">Gruppo</th>
-                  <th className="p-2 text-left">Stake</th>
-                  <th className="p-2 text-left">Equity stimata</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {future.map((f) => (
-                  <tr key={f.n} className="border-b">
-                    <td className="p-2">{f.n}</td>
-                    <td className="p-2">{f.group}</td>
-                    <td className="p-2">€ {f.stake}</td>
-                    <td className="p-2">€ {f.equity}</td>
+          {[
+            { label: "Gruppo Live", data: futureLive as SimulatedTrade[] },
+            { label: "Gruppo Elite Pro", data: futureElite as SimulatedTrade[] },
+            { label: "Bot", data: futureBot as SimulatedTrade[] },
+          ].map((block) => (
+            <div key={block.label} className="border rounded">
+              <div className="border-b px-3 py-2 font-semibold">
+                {block.label}
+              </div>
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b">
+                    <th className="p-2 text-left">#</th>
+                    <th className="p-2 text-left">Stake</th>
+                    <th className="p-2 text-left">Equity stimata</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {block.data.map((row) => (
+                    <tr key={row.n} className="border-b">
+                      <td className="p-2">{row.n}</td>
+                      <td className="p-2">€ {row.stake}</td>
+                      <td className="p-2">€ {row.equity}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
         </CardContent>
       </Card>
 
-      {/* RISCHIO GIORNALIERO */}
+      {/* RISCHIO GIORNALIERO + IMPOSTAZIONI */}
       <Card>
         <CardHeader>
           <CardTitle>Rischio giornaliero e disciplina</CardTitle>
         </CardHeader>
         <CardContent className="grid md:grid-cols-2 gap-6 text-sm">
-          <div>
-            <p>PnL ultimo giorno: {(dailyPnLPercent * 100).toFixed(2)}%</p>
-            <p>Limite perdita giornaliera: {(config.maxDailyLossPercent * 100).toFixed(1)}%</p>
+          <div className="space-y-1">
             <p>
-              Perdite consecutive: {consecutiveLosses} /{" "}
-              {config.maxConsecutiveLosses}
+              <span className="font-semibold">PnL ultimo giorno:</span>{" "}
+              {(dailyPnLPercent * 100).toFixed(2)}%
+            </p>
+            <p>
+              <span className="font-semibold">
+                Limite perdita giornaliera:
+              </span>{" "}
+              {(config.maxDailyLossPercent * 100).toFixed(1)}%
+            </p>
+            <p>
+              <span className="font-semibold">Perdite consecutive:</span>{" "}
+              {consecutiveLosses} / {config.maxConsecutiveLosses}
             </p>
           </div>
 
-          {/* IMPOSTAZIONI */}
           <div className="space-y-2">
             <p className="font-semibold">Impostazioni Money Management</p>
 
@@ -529,16 +566,84 @@ export default function MoneyManagementPage() {
               <label className="text-xs w-32">Rischio base / trade</label>
               <input
                 type="number"
-                className="border rounded px-2 py-1 w-20 text-sm"
+                className="border rounded px-2 py-1 w-20 text-xs"
                 value={(config.baseRiskPercent * 100).toFixed(1)}
                 onChange={(e) =>
                   setConfig((c) => ({
                     ...c,
-                    baseRiskPercent: Number(e.target.value) / 100,
+                    baseRiskPercent: Number(e.target.value) / 100 || 0.01,
                   }))
                 }
               />
-              %
+              <span className="text-xs text-muted-foreground">%</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="text-xs w-32">Kelly factor</label>
+              <input
+                type="number"
+                className="border rounded px-2 py-1 w-20 text-xs"
+                min={0}
+                max={1}
+                step={0.05}
+                value={config.kellyFactor}
+                onChange={(e) =>
+                  setConfig((c) => ({
+                    ...c,
+                    kellyFactor: Number(e.target.value) || 0.25,
+                  }))
+                }
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="text-xs w-32">Min. stake (€)</label>
+              <input
+                type="number"
+                className="border rounded px-2 py-1 w-20 text-xs"
+                min={0}
+                step={0.5}
+                value={config.stakeMinimo}
+                onChange={(e) =>
+                  setConfig((c) => ({
+                    ...c,
+                    stakeMinimo: Number(e.target.value) || 1,
+                  }))
+                }
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="text-xs w-32">Max loss giornaliera</label>
+              <input
+                type="number"
+                className="border rounded px-2 py-1 w-20 text-xs"
+                value={(config.maxDailyLossPercent * 100).toFixed(1)}
+                onChange={(e) =>
+                  setConfig((c) => ({
+                    ...c,
+                    maxDailyLossPercent: Number(e.target.value) / 100 || 0.04,
+                  }))
+                }
+              />
+              <span className="text-xs text-muted-foreground">%</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="text-xs w-32">Max perdite di fila</label>
+              <input
+                type="number"
+                className="border rounded px-2 py-1 w-20 text-xs"
+                min={1}
+                max={10}
+                value={config.maxConsecutiveLosses}
+                onChange={(e) =>
+                  setConfig((c) => ({
+                    ...c,
+                    maxConsecutiveLosses: Number(e.target.value) || 3,
+                  }))
+                }
+              />
             </div>
           </div>
         </CardContent>
@@ -546,4 +651,3 @@ export default function MoneyManagementPage() {
     </div>
   );
 }
-
