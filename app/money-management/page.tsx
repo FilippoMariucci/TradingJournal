@@ -211,15 +211,50 @@ export default function MoneyManagementPage() {
   // ================================
   // 🧠 STAKE: KELLY ADATTIVO + RECOVERY
   // ================================
-  function getSuggestionForGroup(group: GroupType): StakeSuggestion {
-    const stats: StatsInput = {
-      equity,
-      winRateUser,
-      winRateGroup: winRateGroup[group],
-      payout: payoutAvg[group],
-      consecutiveLosses,
-      dailyPnLPercent,
-    };
+ function getSuggestionForGroup(group: GroupType): StakeSuggestion {
+  const stats: StatsInput = {
+    equity,
+    winRateUser,
+    winRateGroup: winRateGroup[group],  // <— WR del gruppo!
+    payout: payoutAvg[group],           // <— payout del gruppo
+    consecutiveLosses,
+    dailyPnLPercent,
+  };
+
+  const base = calculateStakeSuggestion(config, stats);
+
+  // ⭐ Kelly BASE DEL GRUPPO (reale)
+  const WR = winRateGroup[group] || 0.5;
+  const payout = payoutAvg[group] || 0.8;
+
+  const kellyRaw = ((WR * payout) - (1 - WR)) / payout;
+  const kellyAdjusted = Math.max(kellyRaw * config.kellyFactor, 0);
+
+  base.kellyStake = stats.equity * kellyAdjusted;
+
+  // ⭐ Kelly adattivo
+  const adaptiveKellyMultiplier = 1 + (winRateUser - 0.5);
+  base.kellyStake = base.kellyStake * adaptiveKellyMultiplier;
+
+  // ⭐ stake teorico
+  base.suggestedStake = Math.max(
+    base.kellyStake,
+    base.baseStake,        // rischio base personale
+    config.stakeMinimo     // mai sotto il minimo
+  );
+
+  // ⭐ Recovery mode
+  if (stats.dailyPnLPercent <= -config.maxDailyLossPercent ||
+      stats.consecutiveLosses >= config.maxConsecutiveLosses) {
+
+    base.allowed = false;
+    base.reason = "Modalità Recovery attiva (stake ridotto del 70%)";
+    base.suggestedStake = base.suggestedStake * config.recoveryReduction;
+  }
+
+  return base;
+}
+
 
     const result = calculateStakeSuggestion(config, stats);
 
@@ -511,3 +546,4 @@ export default function MoneyManagementPage() {
     </div>
   );
 }
+
