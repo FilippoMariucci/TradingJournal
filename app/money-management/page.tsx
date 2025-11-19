@@ -479,66 +479,58 @@ export default function MoneyManagementPage() {
 
       {/* STAKE CONSIGLIATO PER OGNI GRUPPO */}
       <Card>
-        <CardHeader>
-          <CardTitle>Stake consigliato per gruppo</CardTitle>
-          {(!s.allowed) && (
-  <div className="bg-yellow-50 border-l-4 border-yellow-500 p-3 mb-3">
-    <p className="text-sm font-semibold text-yellow-700">
-      Modalità Recovery attiva
-    </p>
-    <p className="text-xs text-yellow-700">
-      Il sistema ha ridotto gli stake del 70% per favorire il rientro.
-    </p>
-  </div>
-)}
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {GROUPS.map((g) => {
-            const s = stakeByGroup[g];
+  <CardHeader>
+    <CardTitle>Stake consigliato per gruppo</CardTitle>
+  </CardHeader>
 
-            return (
-              <div
-                key={g}
-                className="border rounded p-3 flex flex-col gap-1"
-              >
-                <div className="flex justify-between items-center">
-                  <h3 className="font-semibold">{g}</h3>
-                  <span className="text-xs text-muted-foreground">
-                    WR combinato:{" "}
-                    {(s.combinedWinRate * 100).toFixed(1)}%
-                  </span>
-                </div>
+  <CardContent className="space-y-4">
+    {GROUPS.map((g) => {
+      const s = stakeByGroup[g];
 
-                { s.allowed ? (
-  <>
-    <p className="text-lg font-bold">
-      Importo consigliato: € {s.suggestedStake.toFixed(2)}
-    </p>
-  </>
-) : (
-  <>
-    <p className="text-sm font-semibold text-red-600">
-      {s.reason}
-    </p>
-    <p className="text-xs mt-1 text-muted-foreground">
-      (valori teorici sotto)
-    </p>
-  </>
-)}
+      return (
+        <div key={g} className="border rounded p-3 flex flex-col gap-2">
 
-{/* MOSTRA SEMPRE I VALORI CALCOLATI */}
-<div className="text-xs text-muted-foreground mt-2">
-  <p>Stake teorico: € {s.suggestedStake.toFixed(2)}</p>
-  <p>Base: € {s.baseStake.toFixed(2)}</p>
-  <p>Kelly ridotto: € {s.kellyStake.toFixed(2)}</p>
-  <p>Rischio utilizzato: {(s.usedRiskPercent * 100).toFixed(2)}%</p>
-</div>
+          {/* TITOLO + WR */}
+          <div className="flex justify-between items-center">
+            <h3 className="font-semibold">{g}</h3>
+            <span className="text-xs text-muted-foreground">
+              WR combinato: {(s.combinedWinRate * 100).toFixed(1)}%
+            </span>
+          </div>
 
-              </div>
-            );
-          })}
-        </CardContent>
-      </Card>
+          {/* RECOVERY MODE */}
+          {!s.allowed && (
+            <div className="bg-yellow-50 border-l-4 border-yellow-500 p-2 rounded">
+              <p className="text-sm font-semibold text-yellow-700">
+                {s.reason}
+              </p>
+              <p className="text-xs text-yellow-700">
+                (valori teorici sotto)
+              </p>
+            </div>
+          )}
+
+          {/* VALORI SEMPRE VISIBILI */}
+          <div className="text-xs text-muted-foreground">
+            <p>Stake teorico: € {s.suggestedStake.toFixed(2)}</p>
+            <p>Base: € {s.baseStake.toFixed(2)}</p>
+            <p>Kelly ridotto: € {s.kellyStake.toFixed(2)}</p>
+            <p>Rischio utilizzato: {(s.usedRiskPercent * 100).toFixed(2)}%</p>
+          </div>
+
+          {/* SE NON BLOCCATO → MOSTRA IMPORTO CONSIGLIATO */}
+          {s.allowed && (
+            <p className="text-lg font-bold">
+              Importo consigliato: € {s.suggestedStake.toFixed(2)}
+            </p>
+          )}
+
+        </div>
+      );
+    })}
+  </CardContent>
+</Card>
+
 
       {/* PIANO OPERATIVO FUTURO */}
 <Card>
