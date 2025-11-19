@@ -312,28 +312,37 @@ export default function MoneyManagementPage() {
   }
 
   // ---------- SIMULAZIONE SESSIONE (12 TRADE PER OGNI GRUPPO) ----------
-  function simulateSessionForGroup(group: GroupType): SimulatedTrade[] {
-    let simEq = equity;
-    const s = stakeByGroup[group];
-    const stake = Number(s.suggestedStake) || config.stakeMinimo;
-    const WRg = winRateGroup[group] || 0.5;
-    const payout = payoutAvg[group] || 0.8;
+  // 🔥 Simulazione REALISTICA Monte Carlo
+function simulateSessionForGroup(group: GroupType): SimulatedTrade[] {
+  let simEq = equity;
+  const s = stakeByGroup[group];
+  const stake = Number(s.suggestedStake) || config.stakeMinimo;
+  const WRg = winRateGroup[group] || 0.5; // probabilità di vincere
+  const payout = payoutAvg[group] || 0.8;
 
-    const EV = WRg * payout - (1 - WRg); // valore atteso per unità di stake
+  const results: SimulatedTrade[] = [];
 
-    const res: SimulatedTrade[] = [];
+  for (let i = 0; i < 12; i++) {
+    const random = Math.random();
 
-    for (let i = 0; i < 12; i++) {
-      simEq = simEq + stake * EV;
-      res.push({
-        n: i + 1,
-        stake: stake.toFixed(2),
-        equity: simEq.toFixed(2),
-      });
+    if (random <= WRg) {
+      // TRADE VINTA
+      simEq += stake * payout;
+    } else {
+      // TRADE PERSA
+      simEq -= stake;
     }
 
-    return res;
+    results.push({
+      n: i + 1,
+      stake: stake.toFixed(2),
+      equity: simEq.toFixed(2),
+    });
   }
+
+  return results;
+}
+
 
   const futureLive = simulateSessionForGroup("Gruppo Live");
   const futureElite = simulateSessionForGroup("Gruppo Elite Pro");
