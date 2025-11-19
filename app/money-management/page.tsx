@@ -59,11 +59,13 @@ export default function MoneyManagementPage() {
   const [equityHistory, setEquityHistory] = useState<EquityPoint[]>([]);
 
   const [config, setConfig] = useState<MoneyManagementConfig>({
-    baseRiskPercent: 0.01,
-    kellyFactor: 0.25,
-    maxDailyLossPercent: 0.04,
-    maxConsecutiveLosses: 3,
-  });
+  baseRiskPercent: 0.01,
+  kellyFactor: 0.25,
+  maxDailyLossPercent: 0.04,
+  maxConsecutiveLosses: 3,
+  stakeMinimo: 2,            // ⭐ nuovo
+  recoveryReduction: 0.7,    // ⭐ nuovo
+});
 
   // 🔹 Al mount: carico config + startingEquity da localStorage
   useEffect(() => {
@@ -274,17 +276,44 @@ export default function MoneyManagementPage() {
   };
 
   function getSuggestionForGroup(group: GroupType): StakeSuggestion {
-    const stats: StatsInput = {
-      equity,
-      winRateUser,
-      winRateGroup: winRateGroup[group],
-      payout: payoutAvg[group],
-      consecutiveLosses,
-      dailyPnLPercent,
-    };
+  const stats: StatsInput = {
+    equity,
+    winRateUser,
+    winRateGroup: winRateGroup[group],
+    payout: payoutAvg[group],
+    consecutiveLosses,
+    dailyPnLPercent,
+  };
 
-    return calculateStakeSuggestion(config, stats);
+  // risultato originale
+  const result = calculateStakeSuggestion(config, stats);
+
+  // ⭐ 1) KELLY ADATTIVO
+  const adaptiveKellyMultiplier = 1 + (stats.winRateUser - 0.5);
+  result.kellyStake = Math.max(result.kellyStake * adaptiveKellyMultiplier, 0);
+
+  // ⭐ 2) STAKE MINIMO GARANTITO
+  result.suggestedStake = Math.max(
+    result.suggestedStake,
+    result.kellyStake,
+    result.baseStake,
+    config.stakeMinimo
+  );
+
+  // ⭐ 3) RECOVERY MODE
+  if (
+    stats.dailyPnLPercent <= -config.maxDailyLossPercent ||
+    stats.consecutiveLosses >= config.maxConsecutiveLosses
+  ) {
+    result.allowed = false;
+    result.reason = "Modalità Recovery attiva (stake ridotto del 70%)";
+
+    result.suggestedStake = result.suggestedStake * config.recoveryReduction;
   }
+
+  return result;
+}
+
 
   // ==========================
   // 🧩 RENDER
@@ -452,6 +481,16 @@ export default function MoneyManagementPage() {
       <Card>
         <CardHeader>
           <CardTitle>Stake consigliato per gruppo</CardTitle>
+          {(!s.allowed) && (
+  <div className="bg-yellow-50 border-l-4 border-yellow-500 p-3 mb-3">
+    <p className="text-sm font-semibold text-yellow-700">
+      Modalità Recovery attiva
+    </p>
+    <p className="text-xs text-yellow-700">
+      Il sistema ha ridotto gli stake del 70% per favorire il rientro.
+    </p>
+  </div>
+)}
         </CardHeader>
         <CardContent className="space-y-4">
           {GROUPS.map((g) => {
@@ -500,6 +539,48 @@ export default function MoneyManagementPage() {
           })}
         </CardContent>
       </Card>
+
+      {/* PIANO OPERATIVO FUTURO */}
+<Card>
+  <CardHeader>
+    <CardTitle>Operazioni future consigliate</CardTitle>
+  </CardHeader>
+  <CardContent className="space-y-3 text-sm">
+    <p className="text-muted-foreground">
+      Simulazione dei prossimi 5 trade in base all’equity attuale,
+      al winrate e al Kelly adattivo.
+    </p>
+
+    <div className="border rounded">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b">
+            <th className="p-2 text-left">#</th>
+            <th className="p-2 text-left">Gruppo</th>
+            <th className="p-2 text-left">Stake</th>
+            <th className="p-2 text-left">Equity stimata</th>
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from({ length: 5 }).map((_, i) => {
+            const group = GROUPS[i % GROUPS.length];
+            const s = stakeByGroup[group];
+            const eqNext = equity + s.suggestedStake * (winRateUser - (1 - winRateUser));
+
+            return (
+              <tr key={i} className="border-b">
+                <td className="p-2">{i + 1}</td>
+                <td className="p-2">{group}</td>
+                <td className="p-2">€ {s.suggestedStake.toFixed(2)}</td>
+                <td className="p-2">€ {eqNext.toFixed(2)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  </CardContent>
+</Card>
 
       {/* RISCHIO GIORNALIERO */}
       <Card>
