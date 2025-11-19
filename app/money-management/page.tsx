@@ -38,7 +38,7 @@ const GROUPS: GroupType[] = ["Gruppo Live", "Gruppo Elite Pro", "Bot"];
 export default function MoneyManagementPage() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [equity, setEquity] = useState(0);
-  const [startingEquity, setStartingEquity] = useState(700); // default 700€
+  const [startingEquity, setStartingEquity] = useState(700);
 
   const [winRateUser, setWinRateUser] = useState(0);
   const [winRateGroup, setWinRateGroup] = useState<Record<GroupType, number>>({
@@ -55,92 +55,60 @@ export default function MoneyManagementPage() {
 
   const [consecutiveLosses, setConsecutiveLosses] = useState(0);
   const [dailyPnLPercent, setDailyPnLPercent] = useState(0);
-
   const [equityHistory, setEquityHistory] = useState<EquityPoint[]>([]);
 
   const [config, setConfig] = useState<MoneyManagementConfig>({
-  baseRiskPercent: 0.01,
-  kellyFactor: 0.25,
-  maxDailyLossPercent: 0.04,
-  maxConsecutiveLosses: 3,
-  stakeMinimo: 2,            // ⭐ nuovo
-  recoveryReduction: 0.7,    // ⭐ nuovo
-});
+    baseRiskPercent: 0.01,
+    kellyFactor: 0.25,
+    maxDailyLossPercent: 0.04,
+    maxConsecutiveLosses: 3,
+    stakeMinimo: 2,
+    recoveryReduction: 0.7,
+  });
 
-  // 🔹 Al mount: carico config + startingEquity da localStorage
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const storedConfig = window.localStorage.getItem(
-      "moneyManagementConfig"
-    );
+    const storedConfig = window.localStorage.getItem("moneyManagementConfig");
     if (storedConfig) {
       try {
-        const parsed = JSON.parse(storedConfig) as MoneyManagementConfig;
-        setConfig(parsed);
-      } catch {
-        // ignore
-      }
+        setConfig(JSON.parse(storedConfig));
+      } catch {}
     }
 
     const storedStartEq = window.localStorage.getItem("startingEquity");
-    if (storedStartEq) {
-      const v = Number(storedStartEq);
-      if (!Number.isNaN(v)) setStartingEquity(v);
+    if (storedStartEq && !Number.isNaN(Number(storedStartEq))) {
+      setStartingEquity(Number(storedStartEq));
     }
   }, []);
 
-  // 🔹 Salvo su localStorage quando cambia
   useEffect(() => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(
-      "moneyManagementConfig",
-      JSON.stringify(config)
-    );
+    window.localStorage.setItem("moneyManagementConfig", JSON.stringify(config));
   }, [config]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(
-      "startingEquity",
-      String(startingEquity)
-    );
+    window.localStorage.setItem("startingEquity", String(startingEquity));
   }, [startingEquity]);
 
-  // 🔥 Carica tutti i trade dall'API
   useEffect(() => {
     async function load() {
       const res = await fetch("/api/trades");
       const data = await res.json();
 
-      // Normalizzo i dati per sicurezza (pnl numerico, payout in 0.xx, ecc.)
-      const normalized: Trade[] = (data || []).map(
-        (t: any, index: number) => ({
-          id: t.id ?? index,
-          groupType: t.groupType,
-          pnl:
-            typeof t.pnl === "number"
-              ? t.pnl
-              : Number(
-                  String(t.pnl)
-                    .replace("€", "")
-                    .replace("%", "")
-                    .replace(".", "")
-                    .replace(",", ".")
-                ) || 0,
-          date: t.date,
-          payout:
-            typeof t.payout === "number"
-              ? t.payout
-              : t.payout
-              ? Number(
-                  String(t.payout)
-                    .replace("%", "")
-                    .replace(",", ".")
-                ) / 100
-              : null,
-        })
-      );
+      const normalized: Trade[] = (data || []).map((t: any, index: number) => ({
+        id: t.id ?? index,
+        groupType: t.groupType,
+        pnl: Number(String(t.pnl).replace("€", "").replace(",", ".")) || 0,
+        date: t.date,
+        payout:
+          typeof t.payout === "number"
+            ? t.payout
+            : t.payout
+            ? Number(String(t.payout).replace("%", "")) / 100
+            : 0.8,
+      }));
 
       setTrades(normalized);
     }
@@ -148,126 +116,134 @@ export default function MoneyManagementPage() {
     load();
   }, []);
 
-  // ==========================
-  // 📌 CALCOLO STATISTICHE
-  // ==========================
+  // ================================
+  // 📊 CALCOLO STATS
+  // ================================
   useEffect(() => {
     if (!trades.length) return;
 
-    // Winrate generale, per gruppo, equity, history, dailyPnL
     let totalPnL = 0;
     let wins = 0;
 
-    const wrGroup: Record<GroupType, number> = {
-      "Gruppo Live": 0,
-      "Gruppo Elite Pro": 0,
-      Bot: 0,
-    };
-
-    const groupCounts: Record<GroupType, { wins: number; total: number }> = {
+    const groupCounts = {
       "Gruppo Live": { wins: 0, total: 0 },
       "Gruppo Elite Pro": { wins: 0, total: 0 },
       Bot: { wins: 0, total: 0 },
     };
 
-    // 🔹 serie equity
     const sortedTrades = [...trades].sort((a, b) => {
-      if (a.date && b.date) {
-        return (
-          new Date(a.date).getTime() - new Date(b.date).getTime()
-        );
-      }
+      if (a.date && b.date)
+        return new Date(a.date).getTime() - new Date(b.date).getTime();
       return (a.id ?? 0) - (b.id ?? 0);
     });
 
     let runningEquity = startingEquity;
     const history: EquityPoint[] = [];
 
-    // Per dailyPnL: guardo la data dell'ultimo trade
     const datedTrades = trades.filter((t) => t.date);
-    let lastDayPnl = 0;
+    let lastDayPnL = 0;
 
     let lastDateKey: string | null = null;
     if (datedTrades.length > 0) {
       const last = datedTrades.reduce((acc, t) => {
-        if (!acc.date) return t;
-        if (
-          new Date(t.date as string).getTime() >
-          new Date(acc.date as string).getTime()
-        ) {
-          return t;
-        }
-        return acc;
+        return new Date(t.date!).getTime() > new Date(acc.date!).getTime()
+          ? t
+          : acc;
       });
-      const lastDate = new Date(last.date as string);
-      lastDateKey = `${lastDate.getFullYear()}-${
-        lastDate.getMonth() + 1
-      }-${lastDate.getDate()}`;
+      const d = new Date(last.date!);
+      lastDateKey = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
     }
 
-    // 🔹 ciclo su sortedTrades per equity + winrate + gruppo
     sortedTrades.forEach((t, i) => {
-      const pnlNum =
-        typeof t.pnl === "number" ? t.pnl : Number(t.pnl) || 0;
-      totalPnL += pnlNum;
-      if (pnlNum > 0) wins += 1;
+      const pnl = Number(t.pnl);
+      totalPnL += pnl;
+      if (pnl > 0) wins++;
 
-      const gt = t.groupType as GroupType | undefined;
-      if (gt && GROUPS.includes(gt)) {
-        groupCounts[gt].total += 1;
-        if (pnlNum > 0) groupCounts[gt].wins += 1;
+      const g = t.groupType as GroupType;
+      if (GROUPS.includes(g)) {
+        groupCounts[g].total++;
+        if (pnl > 0) groupCounts[g].wins++;
       }
 
-      // equity curve
-      runningEquity += pnlNum;
-      history.push({
-        index: i + 1,
-        equity: runningEquity,
-      });
+      runningEquity += pnl;
+      history.push({ index: i + 1, equity: runningEquity });
 
-      // dailyPnL (ultimo giorno)
       if (t.date && lastDateKey) {
         const d = new Date(t.date);
         const key = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
-        if (key === lastDateKey) {
-          lastDayPnl += pnlNum;
-        }
+        if (key === lastDateKey) lastDayPnL += pnl;
       }
     });
 
-    const eqFinal = startingEquity + totalPnL;
-    setEquity(eqFinal);
+    const finalEq = startingEquity + totalPnL;
+    setEquity(finalEq);
     setEquityHistory(history);
 
-    const wrUser =
-      trades.length > 0 ? wins / trades.length : 0.5;
+    const wrUser = wins / trades.length;
     setWinRateUser(wrUser);
+
+    const wrGroup: Record<GroupType, number> = {
+      "Gruppo Live": wrUser,
+      "Gruppo Elite Pro": wrUser,
+      Bot: wrUser,
+    };
 
     GROUPS.forEach((g) => {
       const info = groupCounts[g];
-      wrGroup[g] =
-        info.total > 0 ? info.wins / info.total : wrUser || 0.5;
+      if (info.total > 0) wrGroup[g] = info.wins / info.total;
     });
+
     setWinRateGroup(wrGroup);
 
-    const dailyPct =
-      eqFinal !== 0 ? lastDayPnl / eqFinal : 0;
-    setDailyPnLPercent(dailyPct);
+    setDailyPnLPercent(finalEq !== 0 ? lastDayPnL / finalEq : 0);
 
-    // Perdite consecutive globali
     let consec = 0;
     for (let i = trades.length - 1; i >= 0; i--) {
-      const pnlNum = Number(trades[i].pnl) || 0;
-      if (pnlNum < 0) consec++;
+      if (Number(trades[i].pnl) < 0) consec++;
       else break;
     }
     setConsecutiveLosses(consec);
   }, [trades, startingEquity]);
 
-  const isDailyLossLimitHit =
-    dailyPnLPercent <= -config.maxDailyLossPercent;
-  const isConsecLimitHit =
-    consecutiveLosses >= config.maxConsecutiveLosses;
+  const isDailyLossLimitHit = dailyPnLPercent <= -config.maxDailyLossPercent;
+  const isConsecLimitHit = consecutiveLosses >= config.maxConsecutiveLosses;
+
+  // ================================
+  // 🧠 STAKE: KELLY ADATTIVO + RECOVERY
+  // ================================
+  function getSuggestionForGroup(group: GroupType): StakeSuggestion {
+    const stats: StatsInput = {
+      equity,
+      winRateUser,
+      winRateGroup: winRateGroup[group],
+      payout: payoutAvg[group],
+      consecutiveLosses,
+      dailyPnLPercent,
+    };
+
+    const result = calculateStakeSuggestion(config, stats);
+
+    // ⭐ Kelly adattivo
+    const adaptiveKellyMultiplier = 1 + (stats.winRateUser - 0.5);
+    result.kellyStake = Math.max(result.kellyStake * adaptiveKellyMultiplier, 0);
+
+    // ⭐ Stake minimo garantito
+    result.suggestedStake = Math.max(
+      result.suggestedStake,
+      result.kellyStake,
+      result.baseStake,
+      config.stakeMinimo
+    );
+
+    // ⭐ Recovery mode
+    if (isDailyLossLimitHit || isConsecLimitHit) {
+      result.allowed = false;
+      result.reason = "Modalità Recovery attiva (stake ridotto del 70%)";
+      result.suggestedStake = result.suggestedStake * config.recoveryReduction;
+    }
+
+    return result;
+  }
 
   const stakeByGroup: Record<GroupType, StakeSuggestion> = {
     "Gruppo Live": getSuggestionForGroup("Gruppo Live"),
@@ -275,69 +251,54 @@ export default function MoneyManagementPage() {
     Bot: getSuggestionForGroup("Bot"),
   };
 
-  function getSuggestionForGroup(group: GroupType): StakeSuggestion {
-  const stats: StatsInput = {
-    equity,
-    winRateUser,
-    winRateGroup: winRateGroup[group],
-    payout: payoutAvg[group],
-    consecutiveLosses,
-    dailyPnLPercent,
-  };
+  // ================================
+  // 🔮 SIMULAZIONE FUTURI 5 TRADE (AVANZATA)
+  // ================================
+  function simulateFutureTrades() {
+    let simEq = equity;
 
-  // risultato originale
-  const result = calculateStakeSuggestion(config, stats);
+    return Array.from({ length: 5 }).map((_, i) => {
+      const group = GROUPS[i % GROUPS.length];
+      const s = stakeByGroup[group];
 
-  // ⭐ 1) KELLY ADATTIVO
-  const adaptiveKellyMultiplier = 1 + (stats.winRateUser - 0.5);
-  result.kellyStake = Math.max(result.kellyStake * adaptiveKellyMultiplier, 0);
+      const stake = Number(s.suggestedStake) || config.stakeMinimo;
 
-  // ⭐ 2) STAKE MINIMO GARANTITO
-  result.suggestedStake = Math.max(
-    result.suggestedStake,
-    result.kellyStake,
-    result.baseStake,
-    config.stakeMinimo
-  );
+      const WR = winRateUser || 0.5;
+      const payout = payoutAvg[group] || 0.8;
 
-  // ⭐ 3) RECOVERY MODE
-  if (
-    stats.dailyPnLPercent <= -config.maxDailyLossPercent ||
-    stats.consecutiveLosses >= config.maxConsecutiveLosses
-  ) {
-    result.allowed = false;
-    result.reason = "Modalità Recovery attiva (stake ridotto del 70%)";
+      const EV = WR * payout - (1 - WR);
 
-    result.suggestedStake = result.suggestedStake * config.recoveryReduction;
+      simEq = simEq + stake * EV;
+
+      return {
+        n: i + 1,
+        group,
+        stake: stake.toFixed(2),
+        equity: simEq.toFixed(2),
+      };
+    });
   }
 
-  return result;
-}
+  const future = simulateFutureTrades();
 
-
-  // ==========================
-  // 🧩 RENDER
-  // ==========================
-
+  // ================================
+  // 🎨 RENDER
+  // ================================
   return (
     <div className="p-6 md:p-8 space-y-6">
-      <h1 className="text-3xl font-bold mb-2">
-        💰 Money Management
-      </h1>
+      <h1 className="text-3xl font-bold">💰 Money Management</h1>
       <p className="text-sm text-muted-foreground">
-        Controllo completo del rischio basato su equity, winrate e
-        gruppi (Live, Elite Pro, Bot).
+        Controllo completo del rischio basato su equity, winrate e gruppi.
       </p>
 
-      {/* ALERT GLOBALI */}
       {(isDailyLossLimitHit || isConsecLimitHit) && (
-        <Card className="border-red-500/50 bg-red-50">
+        <Card className="border-red-500 bg-red-50">
           <CardHeader>
             <CardTitle className="text-red-700">
               ⚠️ Attenzione: limiti di sicurezza raggiunti
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-1 text-sm text-red-800">
+          <CardContent className="text-sm text-red-800 space-y-1">
             {isDailyLossLimitHit && (
               <p>
                 • Limite di perdita giornaliera superato (
@@ -346,46 +307,34 @@ export default function MoneyManagementPage() {
             )}
             {isConsecLimitHit && (
               <p>
-                • Hai {consecutiveLosses} perdite consecutive
-                (limite: {config.maxConsecutiveLosses}).
+                • Hai {consecutiveLosses} perdite consecutive (limite:{" "}
+                {config.maxConsecutiveLosses})
               </p>
             )}
             <p className="font-semibold mt-1">
-              Il sistema blocca automaticamente lo stake
-              consigliato.
+              Il sistema blocca automaticamente lo stake consigliato.
             </p>
           </CardContent>
         </Card>
       )}
 
-      {/* RIGA EQUITY + GRAFICO */}
-      <div className="grid gap-4 md:grid-cols-2">
+      {/* EQUITY + GRAFICO */}
+      <div className="grid md:grid-cols-2 gap-4">
         <Card>
           <CardHeader>
             <CardTitle>Equity attuale</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="text-3xl font-bold">
-              € {equity.toFixed(2)}
-            </div>
+            <div className="text-3xl font-bold">€ {equity.toFixed(2)}</div>
             <div className="text-xs text-muted-foreground">
               Equity di partenza:
             </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                className="border rounded px-2 py-1 w-28 text-sm"
-                value={startingEquity}
-                onChange={(e) =>
-                  setStartingEquity(
-                    Number(e.target.value) || 0
-                  )
-                }
-              />
-              <span className="text-xs text-muted-foreground">
-                Modifica il budget iniziale (es. 700)
-              </span>
-            </div>
+            <input
+              type="number"
+              className="border rounded px-2 py-1 w-28 text-sm"
+              value={startingEquity}
+              onChange={(e) => setStartingEquity(Number(e.target.value) || 0)}
+            />
           </CardContent>
         </Card>
 
@@ -398,40 +347,19 @@ export default function MoneyManagementPage() {
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={equityHistory}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis
-                    dataKey="index"
-                    tick={{ fontSize: 10 }}
-                    label={{
-                      value: "Trade #",
-                      position: "insideBottom",
-                      offset: -2,
-                    }}
-                  />
+                  <XAxis dataKey="index" />
                   <YAxis
-                    tick={{ fontSize: 10 }}
-                    width={60}
                     tickFormatter={(v) => `€ ${v}`}
+                    width={50}
                   />
-                  <Tooltip
-                    formatter={(value: any) =>
-                      `€ ${Number(value).toFixed(2)}`
-                    }
-                    labelFormatter={(label) =>
-                      `Trade #${label}`
-                    }
-                  />
+                  <Tooltip formatter={(v) => `€ ${v}`} />
                   <Legend />
-                  <Line
-                    type="monotone"
-                    dataKey="equity"
-                    dot={false}
-                  />
+                  <Line dataKey="equity" dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             ) : (
-              <p className="text-sm text-muted-foreground">
-                Nessun trade disponibile per costruire la curva
-                equity.
+              <p className="text-muted-foreground text-sm">
+                Nessun dato per costruire la curva.
               </p>
             )}
           </CardContent>
@@ -445,261 +373,137 @@ export default function MoneyManagementPage() {
         </CardHeader>
         <CardContent className="grid md:grid-cols-2 gap-4 text-sm">
           <div>
-            <p className="font-semibold">
-              Winrate personale:{" "}
+            Winrate personale:{" "}
+            <span className="font-semibold">
               {(winRateUser * 100).toFixed(1)}%
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Calcolato su tutti i trade registrati.
-            </p>
+            </span>
           </div>
-          <div className="space-y-1">
+          <div>
+            <p>Gruppo Live: {(winRateGroup["Gruppo Live"] * 100).toFixed(1)}%</p>
             <p>
-              <span className="font-semibold">
-                Gruppo Live:
-              </span>{" "}
-              {(winRateGroup["Gruppo Live"] * 100).toFixed(1)}%
+              Gruppo Elite Pro:{" "}
+              {(winRateGroup["Gruppo Elite Pro"] * 100).toFixed(1)}%
             </p>
-            <p>
-              <span className="font-semibold">
-                Gruppo Elite Pro:
-              </span>{" "}
-              {(
-                winRateGroup["Gruppo Elite Pro"] * 100
-              ).toFixed(1)}
-              %
-            </p>
-            <p>
-              <span className="font-semibold">Bot:</span>{" "}
-              {(winRateGroup["Bot"] * 100).toFixed(1)}%
-            </p>
+            <p>Bot: {(winRateGroup["Bot"] * 100).toFixed(1)}%</p>
           </div>
         </CardContent>
       </Card>
 
-      {/* STAKE CONSIGLIATO PER OGNI GRUPPO */}
+      {/* STAKE PER GRUPPO */}
       <Card>
-  <CardHeader>
-    <CardTitle>Stake consigliato per gruppo</CardTitle>
-  </CardHeader>
+        <CardHeader>
+          <CardTitle>Stake consigliato per gruppo</CardTitle>
+        </CardHeader>
 
-  <CardContent className="space-y-4">
-    {GROUPS.map((g) => {
-      const s = stakeByGroup[g];
-
-      return (
-        <div key={g} className="border rounded p-3 flex flex-col gap-2">
-
-          {/* TITOLO + WR */}
-          <div className="flex justify-between items-center">
-            <h3 className="font-semibold">{g}</h3>
-            <span className="text-xs text-muted-foreground">
-              WR combinato: {(s.combinedWinRate * 100).toFixed(1)}%
-            </span>
-          </div>
-
-          {/* RECOVERY MODE */}
-          {!s.allowed && (
-            <div className="bg-yellow-50 border-l-4 border-yellow-500 p-2 rounded">
-              <p className="text-sm font-semibold text-yellow-700">
-                {s.reason}
-              </p>
-              <p className="text-xs text-yellow-700">
-                (valori teorici sotto)
-              </p>
-            </div>
-          )}
-
-          {/* VALORI SEMPRE VISIBILI */}
-          <div className="text-xs text-muted-foreground">
-            <p>Stake teorico: € {s.suggestedStake.toFixed(2)}</p>
-            <p>Base: € {s.baseStake.toFixed(2)}</p>
-            <p>Kelly ridotto: € {s.kellyStake.toFixed(2)}</p>
-            <p>Rischio utilizzato: {(s.usedRiskPercent * 100).toFixed(2)}%</p>
-          </div>
-
-          {/* SE NON BLOCCATO → MOSTRA IMPORTO CONSIGLIATO */}
-          {s.allowed && (
-            <p className="text-lg font-bold">
-              Importo consigliato: € {s.suggestedStake.toFixed(2)}
-            </p>
-          )}
-
-        </div>
-      );
-    })}
-  </CardContent>
-</Card>
-
-
-      {/* PIANO OPERATIVO FUTURO */}
-<Card>
-  <CardHeader>
-    <CardTitle>Operazioni future consigliate</CardTitle>
-  </CardHeader>
-  <CardContent className="space-y-3 text-sm">
-    <p className="text-muted-foreground">
-      Simulazione dei prossimi 5 trade in base all’equity attuale,
-      al winrate e al Kelly adattivo.
-    </p>
-
-    <div className="border rounded">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="border-b">
-            <th className="p-2 text-left">#</th>
-            <th className="p-2 text-left">Gruppo</th>
-            <th className="p-2 text-left">Stake</th>
-            <th className="p-2 text-left">Equity stimata</th>
-          </tr>
-        </thead>
-        <tbody>
-          {Array.from({ length: 5 }).map((_, i) => {
-            const group = GROUPS[i % GROUPS.length];
-            const s = stakeByGroup[group];
-            const eqNext = equity + s.suggestedStake * (winRateUser - (1 - winRateUser));
+        <CardContent className="space-y-4">
+          {GROUPS.map((g) => {
+            const s = stakeByGroup[g];
 
             return (
-              <tr key={i} className="border-b">
-                <td className="p-2">{i + 1}</td>
-                <td className="p-2">{group}</td>
-                <td className="p-2">€ {s.suggestedStake.toFixed(2)}</td>
-                <td className="p-2">€ {eqNext.toFixed(2)}</td>
-              </tr>
+              <div key={g} className="border rounded p-3 flex flex-col gap-2">
+
+                <div className="flex justify-between">
+                  <h3 className="font-semibold">{g}</h3>
+                  <span className="text-xs text-muted-foreground">
+                    WR combinato: {(s.combinedWinRate * 100).toFixed(1)}%
+                  </span>
+                </div>
+
+                {!s.allowed && (
+                  <div className="bg-yellow-50 border-l-4 border-yellow-500 p-2 rounded">
+                    <p className="text-sm font-semibold text-yellow-700">
+                      {s.reason}
+                    </p>
+                    <p className="text-xs text-yellow-700">
+                      (valori teorici sotto)
+                    </p>
+                  </div>
+                )}
+
+                <p className="text-sm">
+                  Stake teorico: <b>€ {s.suggestedStake.toFixed(2)}</b>
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Base: € {s.baseStake.toFixed(2)} | Kelly: €{" "}
+                  {s.kellyStake.toFixed(2)} | Rischio:{" "}
+                  {(s.usedRiskPercent * 100).toFixed(2)}%
+                </p>
+              </div>
             );
           })}
-        </tbody>
-      </table>
-    </div>
-  </CardContent>
-</Card>
+        </CardContent>
+      </Card>
+
+      {/* SIMULAZIONE FUTURA */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Operazioni future consigliate</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm">
+          <p className="text-muted-foreground mb-3">
+            Simulazione dei prossimi 5 trade basata su equity attuale, Kelly
+            adattivo e winrate.
+          </p>
+
+          <div className="border rounded">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b">
+                  <th className="p-2 text-left">#</th>
+                  <th className="p-2 text-left">Gruppo</th>
+                  <th className="p-2 text-left">Stake</th>
+                  <th className="p-2 text-left">Equity stimata</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {future.map((f) => (
+                  <tr key={f.n} className="border-b">
+                    <td className="p-2">{f.n}</td>
+                    <td className="p-2">{f.group}</td>
+                    <td className="p-2">€ {f.stake}</td>
+                    <td className="p-2">€ {f.equity}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* RISCHIO GIORNALIERO */}
       <Card>
         <CardHeader>
           <CardTitle>Rischio giornaliero e disciplina</CardTitle>
         </CardHeader>
-        <CardContent className="grid md:grid-cols-2 gap-4 text-sm">
-          <div className="space-y-1">
+        <CardContent className="grid md:grid-cols-2 gap-6 text-sm">
+          <div>
+            <p>PnL ultimo giorno: {(dailyPnLPercent * 100).toFixed(2)}%</p>
+            <p>Limite perdita giornaliera: {(config.maxDailyLossPercent * 100).toFixed(1)}%</p>
             <p>
-              <span className="font-semibold">
-                PnL ultimo giorno:
-              </span>{" "}
-              {(dailyPnLPercent * 100).toFixed(2)}%
-            </p>
-            <p>
-              <span className="font-semibold">
-                Limite perdita giornaliera:
-              </span>{" "}
-              {(config.maxDailyLossPercent * 100).toFixed(2)}%
-            </p>
-            <p>
-              <span className="font-semibold">
-                Perdite consecutive:
-              </span>{" "}
-              {consecutiveLosses} /{" "}
+              Perdite consecutive: {consecutiveLosses} /{" "}
               {config.maxConsecutiveLosses}
             </p>
           </div>
 
           {/* IMPOSTAZIONI */}
           <div className="space-y-2">
-            <p className="font-semibold">
-              Impostazioni Money Management
-            </p>
+            <p className="font-semibold">Impostazioni Money Management</p>
 
             <div className="flex items-center gap-2">
-              <label className="text-xs w-32">
-                Rischio base / trade
-              </label>
+              <label className="text-xs w-32">Rischio base / trade</label>
               <input
                 type="number"
                 className="border rounded px-2 py-1 w-20 text-sm"
-                min={0.1}
-                max={5}
-                step={0.1}
                 value={(config.baseRiskPercent * 100).toFixed(1)}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  const pct = !Number.isNaN(v) ? v / 100 : 0.01;
+                onChange={(e) =>
                   setConfig((c) => ({
                     ...c,
-                    baseRiskPercent: pct,
-                  }));
-                }}
+                    baseRiskPercent: Number(e.target.value) / 100,
+                  }))
+                }
               />
-              <span className="text-xs text-muted-foreground">
-                %
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <label className="text-xs w-32">
-                Kelly factor
-              </label>
-              <input
-                type="number"
-                className="border rounded px-2 py-1 w-20 text-sm"
-                min={0}
-                max={1}
-                step={0.05}
-                value={config.kellyFactor}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  setConfig((c) => ({
-                    ...c,
-                    kellyFactor: !Number.isNaN(v) ? v : 0.25,
-                  }));
-                }}
-              />
-            </div>
-
-            <div className="flex items-center gap-2">
-              <label className="text-xs w-32">
-                Max loss giornaliera
-              </label>
-              <input
-                type="number"
-                className="border rounded px-2 py-1 w-20 text-sm"
-                min={1}
-                max={15}
-                step={0.5}
-                value={(
-                  config.maxDailyLossPercent * 100
-                ).toFixed(1)}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  const pct = !Number.isNaN(v) ? v / 100 : 0.04;
-                  setConfig((c) => ({
-                    ...c,
-                    maxDailyLossPercent: pct,
-                  }));
-                }}
-              />
-              <span className="text-xs text-muted-foreground">
-                %
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <label className="text-xs w-32">
-                Max perdite di fila
-              </label>
-              <input
-                type="number"
-                className="border rounded px-2 py-1 w-20 text-sm"
-                min={1}
-                max={10}
-                value={config.maxConsecutiveLosses}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  setConfig((c) => ({
-                    ...c,
-                    maxConsecutiveLosses:
-                      !Number.isNaN(v) && v > 0 ? v : 3,
-                  }));
-                }}
-              />
+              %
             </div>
           </div>
         </CardContent>
