@@ -146,30 +146,40 @@ export default function MoneyManagementPage() {
     let runningEquity = startingEquity;
     const history: EquityPoint[] = [];
 
-    const today = new Date();
-const todayKey = `${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}`;
-let lastDayPnL = 0;
+    const datedTrades = trades.filter((t) => t.date);
+    let lastDayPnL = 0;
+    let lastDateKey: string | null = null;
 
-sortedTrades.forEach((t, i) => {
-  const pnl = Number(t.pnl) || 0;
+    if (datedTrades.length > 0) {
+      const last = datedTrades.reduce((acc, t) =>
+        !acc.date || new Date(t.date!).getTime() > new Date(acc.date!).getTime()
+          ? t
+          : acc
+      );
+      const d = new Date(last.date!);
+      lastDateKey = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+    }
 
-  runningEquity += pnl;
-  history.push({ index: i + 1, equity: runningEquity });
+    sortedTrades.forEach((t, i) => {
+      const pnl = Number(t.pnl) || 0;
+      totalPnL += pnl;
+      if (pnl > 0) wins++;
 
-  // Calcolo il PnL solo se il trade è di oggi
-  if (t.date) {
-    const d = new Date(t.date);
-    const key = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
-    if (key === todayKey) lastDayPnL += pnl;
-  }
-});
+      const g = t.groupType as GroupType;
+      if (GROUPS.includes(g)) {
+        groupCounts[g].total++;
+        if (pnl > 0) groupCounts[g].wins++;
+      }
 
-// Se oggi NON ci sono trade → PnL giornaliero = 0
-setDailyPnLPercent(
-  trades.some((t) => t.date && new Date(t.date).toDateString() === today.toDateString())
-    ? lastDayPnL / runningEquity
-    : 0
-);
+      runningEquity += pnl;
+      history.push({ index: i + 1, equity: runningEquity });
+
+      if (t.date && lastDateKey) {
+        const d = new Date(t.date);
+        const key = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+        if (key === lastDateKey) lastDayPnL += pnl;
+      }
+    });
 
     setEquity(runningEquity);
     setEquityHistory(history);
