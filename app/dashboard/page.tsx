@@ -26,9 +26,23 @@ export default function DashboardPage() {
   });
 
   useEffect(() => {
-    async function loadTrades() {
+  async function loadTrades() {
+    try {
       const res = await fetch("/api/trades");
+
+      if (!res.ok) {
+        console.error("API ERROR:", await res.text());
+        setTrades([]);
+        return;
+      }
+
       const data = await res.json();
+
+      if (!Array.isArray(data)) {
+        console.error("API non ha ritornato un array:", data);
+        setTrades([]);
+        return;
+      }
 
       setTrades(data);
 
@@ -59,10 +73,15 @@ export default function DashboardPage() {
         breakeven,
         winRate,
       });
+    } catch (err) {
+      console.error("ERRORE FETCH /api/trades:", err);
+      setTrades([]);
     }
+  }
 
-    loadTrades();
-  }, []);
+  loadTrades();
+}, []);
+
 
   function formatDate(dateString: string) {
     if (!dateString) return "-";
