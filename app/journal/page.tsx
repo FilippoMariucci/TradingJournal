@@ -580,8 +580,6 @@ export default function TradeLogPage() {
           <option value="Presa">Presa</option>
           <option value="Persa">Persa</option>
           <option value="Pareggio">Pareggio</option>
-          <option value="Pari">Pari</option>
-          <option value="Break-even">Break-even</option>
         </select>
 
         <select
@@ -951,8 +949,6 @@ export default function TradeLogPage() {
                   <option value="Presa">Presa</option>
                   <option value="Persa">Persa</option>
                   <option value="Pareggio">Pareggio</option>
-                  <option value="Pari">Pari</option>
-                  <option value="Break-even">Break-even</option>
                 </select>
 
                 <Input
