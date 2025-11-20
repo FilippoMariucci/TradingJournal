@@ -177,7 +177,8 @@ export default function DashboardPage() {
 
           <TableBody>
             {[...trades]
-              .sort((a, b) => new Date(b.date) - new Date(a.date)) // ordina dal più recente
+              .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+ // ordina dal più recente
               .slice(0, 20)                                         // prendi gli ultimi 20
               .map((t: any) => {
                 const dpnl = computeDisplayPnl(t);
