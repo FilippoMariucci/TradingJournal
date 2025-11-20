@@ -158,55 +158,60 @@ export default function DashboardPage() {
       </div>
 
       {/* Tabella Trade */}
-      <div className="col-span-full">
-        <Card>
-          <CardContent className="p-4">
-            <h2 className="text-xl font-bold mb-4">Ultimi 20 Trade</h2>
+      {/* Tabella Trade */}
+<div className="col-span-full">
+  <Card>
+    <CardContent className="p-4">
+      <h2 className="text-xl font-bold mb-4">Ultimi 20 Trade</h2>
 
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Data</TableHead>
-                    <TableHead>Strumento</TableHead>
-                    <TableHead>Direzione</TableHead>
-                    <TableHead>Risultato</TableHead>
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Data</TableHead>
+              <TableHead>Strumento</TableHead>
+              <TableHead>Direzione</TableHead>
+              <TableHead>Risultato</TableHead>
+            </TableRow>
+          </TableHeader>
+
+          <TableBody>
+            {[...trades]
+              .sort((a, b) => new Date(b.date) - new Date(a.date)) // ordina dal più recente
+              .slice(0, 20)                                         // prendi gli ultimi 20
+              .map((t: any) => {
+                const dpnl = computeDisplayPnl(t);
+
+                return (
+                  <TableRow key={t.id}>
+                    <TableCell>{formatDate(t.date)}</TableCell>
+
+                    <TableCell>{t.currencyPair ?? "-"}</TableCell>
+
+                    <TableCell>{t.positionType ?? "-"}</TableCell>
+
+                    <TableCell
+                      className={
+                        dpnl > 0
+                          ? "text-green-600"
+                          : dpnl < 0
+                          ? "text-red-600"
+                          : ""
+                      }
+                    >
+                      € {dpnl.toFixed(2)}
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-
-                <TableBody>
-                  {trades.slice(0, 20).map((t: any) => {
-                    const dpnl = computeDisplayPnl(t);
-
-                    return (
-                      <TableRow key={t.id}>
-                        <TableCell>{formatDate(t.date)}</TableCell>
-
-                        <TableCell>{t.currencyPair ?? "-"}</TableCell>
-
-                        <TableCell>{t.positionType ?? "-"}</TableCell>
-
-                        <TableCell
-                          className={
-                            dpnl > 0
-                              ? "text-green-600"
-                              : dpnl < 0
-                              ? "text-red-600"
-                              : ""
-                          }
-                        >
-                          € {dpnl.toFixed(2)}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-
-          </CardContent>
-        </Card>
+                );
+              })}
+          </TableBody>
+        </Table>
       </div>
+
+    </CardContent>
+  </Card>
+</div>
+
 
     </div>
   );
