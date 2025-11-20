@@ -546,7 +546,7 @@ export default function TradeLogPage() {
             >
               <option value="">Gruppo</option>
               <option value="Gruppo Live">Gruppo Live</option>
-              <option value="Gruppo Elite Prop">Gruppo Elite Prop</option>
+              <option value="Gruppo Elite Pro">Gruppo Elite Pro</option>
               <option value="Bot">Bot</option>
             </select>
 
@@ -927,11 +927,17 @@ export default function TradeLogPage() {
                   defaultValue={editingTrade.openTime ?? ""}
                   className="bg-[#020617] border-neutral-700"
                 />
-                <Input
-                  name="groupType"
-                  defaultValue={editingTrade.groupType ?? ""}
-                  className="bg-[#020617] border-neutral-700"
-                />
+                <select
+  name="groupType"
+  defaultValue={editingTrade.groupType ?? ""}
+  className="bg-[#020617] border border-neutral-700 rounded-md px-2 py-2"
+>
+  <option value="">Gruppo</option>
+  <option value="Gruppo Live">Gruppo Live</option>
+  <option value="Gruppo Elite Pro">Gruppo Elite Pro</option>
+  <option value="Bot">Bot</option>
+</select>
+
 
                 <select
                   name="result"
