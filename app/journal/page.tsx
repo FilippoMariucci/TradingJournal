@@ -329,9 +329,12 @@ export default function TradeLogPage() {
 
     const form = e.currentTarget;
     const formData = new FormData(form);
+    const rawDate = formData.get("date");
 
     const body = {
-      date: formData.get("date") || null,
+      date: formData.get("date")
+  ? new Date(String(formData.get("date"))).toISOString()
+  : null,
       dayOfWeek: formData.get("dayOfWeek") || null,
       currencyPair: formData.get("currencyPair") || null,
       positionType: formData.get("positionType") || null,
