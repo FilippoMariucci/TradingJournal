@@ -146,23 +146,40 @@ export default function MoneyManagementPage() {
     let runningEquity = startingEquity;
     const history: EquityPoint[] = [];
 
-    // Calcoliamo PnL **solo dei trade con data di oggi**
-const today = new Date();
-const todayKey = `${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}`;
+    const datedTrades = trades.filter((t) => t.date);
+    let lastDayPnL = 0;
+    let lastDateKey: string | null = null;
 
-let lastDayPnL = 0;
+    if (datedTrades.length > 0) {
+      const last = datedTrades.reduce((acc, t) =>
+        !acc.date || new Date(t.date!).getTime() > new Date(acc.date!).getTime()
+          ? t
+          : acc
+      );
+      const d = new Date(last.date!);
+      lastDateKey = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+    }
 
-sortedTrades.forEach((t) => {
-  if (!t.date) return;
+    sortedTrades.forEach((t, i) => {
+      const pnl = Number(t.pnl) || 0;
+      totalPnL += pnl;
+      if (pnl > 0) wins++;
 
-  const d = new Date(t.date);
-  const key = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+      const g = t.groupType as GroupType;
+      if (GROUPS.includes(g)) {
+        groupCounts[g].total++;
+        if (pnl > 0) groupCounts[g].wins++;
+      }
 
-  if (key === todayKey) {
-    lastDayPnL += Number(t.pnl) || 0;
-  }
-});
+      runningEquity += pnl;
+      history.push({ index: i + 1, equity: runningEquity });
 
+      if (t.date && lastDateKey) {
+        const d = new Date(t.date);
+        const key = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+        if (key === lastDateKey) lastDayPnL += pnl;
+      }
+    });
 
     setEquity(runningEquity);
     setEquityHistory(history);
