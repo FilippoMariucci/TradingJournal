@@ -9,12 +9,13 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/auth-options";
 function safeDate(v: any) {
   if (!v) return null;
 
-  // aggiunge i secondi se mancano
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v)) v += ":00";
+  // Se arriva dal datetime-local tipo "2025-11-19T11:36"
+  if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v)) {
+    v += ":00";
+  }
 
   const d = new Date(v);
   if (isNaN(d.getTime())) return null;
-
   return d;
 }
 
@@ -22,7 +23,7 @@ function safeDate(v: any) {
 // UTIL: numero safe (mai NaN)
 // -----------------------------
 function n(v: any) {
-  if (v === null || v === undefined) return null;
+  if (v === null || v === undefined || v === "") return null;
   const num = Number(v);
   return isNaN(num) ? null : num;
 }
@@ -30,62 +31,77 @@ function n(v: any) {
 // -----------------------------
 // UTIL: PNL corretto
 // -----------------------------
-function computePnl(result: string | null, amount: number | null, rr: number | null) {
+function computePnl(
+  result: string | null,
+  amount: number | null,
+  rr: number | null
+) {
   if (!result || !amount) return 0;
   const r = result.toLowerCase().trim();
 
+  // VINTA
   if (r.includes("presa") || r.includes("vinta")) {
     if (rr && rr > 0) return (amount * rr) / 100;
     return amount;
   }
 
-  if (r.includes("persa")) return -Math.abs(amount);
+  // PERSA
+  if (r.includes("persa") || r.includes("loss")) {
+    return -Math.abs(amount);
+  }
 
+  // Pareggio o altro
   return 0;
 }
 
 // =========================================
-// GET  → pubblico
+// GET  → pubblico (dashboard + journal)
 // =========================================
 export async function GET() {
   try {
+    // ✅ versione ultra-semplice: ordino solo per id
     const trades = await prisma.trade.findMany({
-      orderBy: [
-        { importOrder: "asc" },
-        { date: "asc" },
-        { id: "asc" },
-      ],
+      orderBy: { id: "asc" },
     });
 
     return NextResponse.json(trades);
   } catch (err) {
-    console.error("GET /api/trades ERROR:", err);
-    return NextResponse.json({ error: "Errore caricamento trades" }, { status: 500 });
+    console.error("GET /api/trades ERROR RAW:", err);
+    return NextResponse.json(
+      { error: "Errore caricamento trades", details: String(err) },
+      { status: 500 }
+    );
   }
 }
 
 // =========================================
-// POST → solo utenti loggati
+// POST → crea trade manuale (solo loggati)
 // =========================================
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session) return NextResponse.json({ error: "Non autorizzato" }, { status: 401 });
+    if (!session) {
+      return NextResponse.json(
+        { error: "Non autorizzato" },
+        { status: 401 }
+      );
+    }
 
     const body = await req.json();
 
+    // prendo l'ultimo trade per continuare numerazione + equity
     const last = await prisma.trade.findFirst({
       orderBy: { importOrder: "desc" },
     });
 
-    const nextOrder = last ? last.importOrder + 1 : 1;
+    const nextOrder = last ? (last.importOrder ?? 0) + 1 : 1;
 
     const amount = n(body.amount) || 0;
     const rr = n(body.riskReward) || 0;
     const pnl = computePnl(body.result, amount, rr);
 
-    const prevEquity = last?.equity ?? 700;
-    const newEquity = prevEquity + pnl;
+    const previousEquity = last?.equity ?? 700;
+    const newEquity = previousEquity + pnl;
 
     const newTrade = await prisma.trade.create({
       data: {
@@ -106,6 +122,8 @@ export async function POST(req: Request) {
         equity: newEquity,
 
         notes: body.notes || null,
+
+        // campi avanzati opzionali
         numericResult: n(body.numericResult),
         ticker: body.ticker || null,
         type: body.type || null,
@@ -118,9 +136,11 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json(newTrade);
-
   } catch (err) {
-    console.error("POST /api/trades ERROR:", err);
-    return NextResponse.json({ error: "Errore creazione trade", details: String(err) }, { status: 500 });
+    console.error("POST /api/trades ERROR RAW:", err);
+    return NextResponse.json(
+      { error: "Errore durante la creazione del trade", details: String(err) },
+      { status: 500 }
+    );
   }
 }
